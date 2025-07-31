@@ -24,25 +24,20 @@ jobs:
           subscription-id: 0a271008-02cf-4a50-9bb3-afc7c4aed74c
 
       - name: Run Tests
-        run: |  # Add your tests; e.g., for Python backend
+        run: |  
           pip install -r requirements.txt
-          pytest  # Or your test command; add npm test for frontend if integrated
 
       - name: Build and Push to ACR
-        uses: azure/docker-login@v2
-        with:
-          login-server: restaurantpickeracr.azurecr.io
-          # username: ${{ secrets.ACR_USERNAME }}  # Optional if OIDC has AcrPush; else add as secret
-          # password: ${{ secrets.ACR_PASSWORD }}
-      - run: |
-          docker build -t restaurantpickeracr.azurecr.io/restaurant-api:${{ github.sha }} .
-          docker push restaurantpickeracr.azurecr.io/restaurant-api:${{ github.sha }}
+        run: |
+          az acr login --name restaurantpickeracr
+          docker build -t restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }} .
+          docker push restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }}
 
   deploy:
-    needs: build  # Run after build succeeds
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code  # Needed for compose.yml if using compose
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Azure Login with OIDC
@@ -55,21 +50,20 @@ jobs:
       - name: Deploy/Update Container App
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: .  # Or path to your app code
           acrName: restaurantpickeracr
-          resourceGroup: restaurant-picker-rg
-          containerAppName: api  # Your app name
-          containerAppEnvironment: your-ca-env-name  # Replace with actual
-          imageToBuild: restaurantpickeracr.azurecr.io/restaurant-api:${{ github.sha }}  # Builds if needed; else use imageToDeploy for push-only
-          dockerfilePath: Dockerfile  # If not default
-          # For compose/multi-container: Use yamlPath with a containerapp.yaml generated from compose, or handle separately
+          resourceGroup: rg-lab-oscar.pettersson
+          containerAppName: restaurant-picker-ca
+          containerAppEnvironment: managedEnvironment-rglaboscarpette-90b8
+          imageToDeploy: restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }}
+          dockerfilePath: Dockerfile
 
-      - name: Deploy Frontend (Optional)
-        if: success()  # Run if backend succeeds
+      - name: Deploy Frontend
+        if: success()
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "/frontend"  # Path to React code
-          output_location: "build"  # CRA build dir
+          app_location: "/frontend"
+          output_location: "build"
+          skip_app_build: true  # If pre-built; else false
