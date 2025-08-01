@@ -1,16 +1,12 @@
-from fastapi import Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from dotenv import load_dotenv
 import os
 from redis.asyncio import Redis
-load_dotenv()
 
-limiter = Limiter(key_func=get_remote_address)
-redis_client = Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, db=0)
+redis_host = os.getenv('AZURE_REDIS_HOST', 'redis')
+redis_port = int(os.getenv('AZURE_REDIS_PORT', 6379))
+redis_pass = os.getenv('AZURE_REDIS_PASSWORD')  # Required in Azure
 
-async def get_cache(key: str) -> bytes | None:
-    return await redis_client.get(key)
-
-async def set_cache(key: str, value: str, ttl: int):
-    await redis_client.setex(key, ttl, value)
+# Use SSL for Azure Redis (port 6380)
+if 'windows.net' in redis_host:  # Detect Azure host
+    redis_client = Redis(host=redis_host, port=redis_port, password=redis_pass, db=0, ssl=True)
+else:
+    redis_client = Redis(host=redis_host, port=redis_port, db=0)

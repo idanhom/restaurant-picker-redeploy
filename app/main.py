@@ -1,4 +1,5 @@
 # app/main.py
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,17 +9,22 @@ from app.api.endpoints import router
 from app.dependencies import limiter
 from slowapi.errors import RateLimitExceeded
 
+import os
+import subprocess
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Runs once when the container starts, *before* the first request.
     Good for one‑off tasks such as creating tables or warming caches.
     """
+    if 'AZURE_POSTGRESQL_HOST' not in os.environ:  # Local only
+        subprocess.run(["python", "init_db.py"])
     Base.metadata.create_all(bind=engine, checkfirst=True)  # dev‑only
     yield
     # Optional clean‑up (e.g. close async clients) goes here.
 
-app = FastAPI(title="Restaurant Discovery API", lifespan=lifespan)
+app = FastAPI(title="Restaurant Discovery API", lifespan=lifespan)
 app.include_router(router)
 app.state.limiter = limiter
 
@@ -33,6 +39,7 @@ origins = [
     "http://localhost:3000",
     "https://my-frontend.domain",
 ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

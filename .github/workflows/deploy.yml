@@ -15,18 +15,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Azure Login with OIDC
         uses: azure/login@v2
         with:
           client-id: d86b7e9a-8049-419d-943e-8bf2869a89da
           tenant-id: 9fc151d1-62b8-402f-b07e-91533ff07e0d
           subscription-id: 0a271008-02cf-4a50-9bb3-afc7c4aed74c
-
       - name: Run Tests
-        run: |  
+        run: |
           pip install -r requirements.txt
-
       - name: Build and Push to ACR
         run: |
           az acr login --name restaurantpickeracr
@@ -39,24 +36,25 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Azure Login with OIDC
         uses: azure/login@v2
         with:
           client-id: d86b7e9a-8049-419d-943e-8bf2869a89da
           tenant-id: 9fc151d1-62b8-402f-b07e-91533ff07e0d
           subscription-id: 0a271008-02cf-4a50-9bb3-afc7c4aed74c
-
       - name: Deploy/Update Container App
         uses: azure/container-apps-deploy-action@v2
         with:
           acrName: restaurantpickeracr
           resourceGroup: rg-lab-oscar.pettersson
           containerAppName: restaurant-picker-ca
-          containerAppEnvironment: managedEnvironment-rglaboscarpette-90b8
+          containerAppEnvironment: restaurant-picker-cae
           imageToDeploy: restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }}
           dockerfilePath: Dockerfile
-
+      - name: Create Service Connectors
+        run: |
+          az containerapp connection create postgres --name restaurant-picker-ca --resource-group rg-lab-oscar.pettersson --target-resource-group rg-lab-oscar.pettersson --server restaurant-picker-pg --database appdb --client-type python+sqlalchemy || true
+          az containerapp connection create redis --name restaurant-picker-ca --resource-group rg-lab-oscar.pettersson --target-resource-group rg-lab-oscar.pettersson --redis restaurant-picker-redis --client-type python || true
       - name: Deploy Frontend
         if: success()
         uses: Azure/static-web-apps-deploy@v1
@@ -66,4 +64,4 @@ jobs:
           action: "upload"
           app_location: "/frontend"
           output_location: "build"
-          skip_app_build: true  # If pre-built; else false
+          skip_app_build: true # If pre-built; else false
