@@ -1,11 +1,11 @@
-# init_db.py (updated with optional clean)
+# init_db.py (schema adjustments only - no destructive cleanup)
 from sqlalchemy import text
 from app.db.session import Base, engine
 from app.models import *
 
 Base.metadata.create_all(bind=engine, checkfirst=True)
 
-# Add office_name column to restaurants if not exists
+# Add columns if not exists
 with engine.connect() as conn:
     conn.execute(text("""
         DO $$
@@ -17,7 +17,6 @@ with engine.connect() as conn:
         END $$;
     """))
 
-    # Add office_name column to shame_restaurants if not exists
     conn.execute(text("""
         DO $$
         BEGIN
@@ -28,7 +27,6 @@ with engine.connect() as conn:
         END $$;
     """))
 
-    # Add google_id column to shame_restaurants if not exists
     conn.execute(text("""
         DO $$
         BEGIN
@@ -39,14 +37,6 @@ with engine.connect() as conn:
         END $$;
     """))
 
-    # Optional: Assign default office_name to existing records (e.g., 'Gbg-office')
     conn.execute(text("UPDATE restaurants SET office_name = 'Gbg-office' WHERE office_name IS NULL;"))
     conn.execute(text("UPDATE shame_restaurants SET office_name = 'Gbg-office' WHERE office_name IS NULL;"))
     conn.commit()
-
-# Optional: Clean non-promoted entries (run once manually if needed)
-# from sqlalchemy.orm import Session
-# session = Session(bind=engine)
-# session.execute(text("DELETE FROM restaurants WHERE promoted = False;"))
-# session.commit()
-# session.close()
