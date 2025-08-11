@@ -45,8 +45,8 @@ with engine.connect() as conn:
     conn.commit()
 
 # Optional: Clean non-promoted entries (run once manually if needed)
-from sqlalchemy.orm import Session
-session = Session(bind=engine)
-session.execute(text("DELETE FROM restaurants WHERE promoted = False;"))
-session.commit()
-session.close()
+# from sqlalchemy.orm import Session
+# session = Session(bind=engine)
+# session.execute(text("DELETE FROM restaurants WHERE promoted = False;"))
+# session.commit()
+# session.close()
