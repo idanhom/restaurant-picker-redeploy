@@ -1,4 +1,5 @@
-name: Build and Deploy to Azure Container Apps
+# .github/workflows/deploy.yml
+name: Build and Deploy (ACA + SWA)
 
 on:
   push:
@@ -9,61 +10,126 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  # Reuse across jobs
+  ACR_NAME: restaurantpickeracr
+  RESOURCE_GROUP: rg-lab-oscar.pettersson
+  CONTAINER_APP_NAME: restaurant-picker-ca
+  CONTAINER_APP_ENV: managedEnvironment-rglaboscarpette-90b8
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login with OIDC
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: d86b7e9a-8049-419d-943e-8bf2869a89da
           tenant-id: 9fc151d1-62b8-402f-b07e-91533ff07e0d
           subscription-id: 0a271008-02cf-4a50-9bb3-afc7c4aed74c
 
-      - name: Run Tests
-        run: |  
-          pip install -r requirements.txt
+      - name: Install Python deps (sanity)
+        run: pip install -r requirements.txt
 
-      - name: Build and Push to ACR
+      - name: ACR Login
+        run: az acr login --name $ACR_NAME
+
+      - name: Build & Push backend image
         run: |
-          az acr login --name restaurantpickeracr
-          docker build -t restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }} .
-          docker push restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }}
+          docker build -t $ACR_NAME.azurecr.io/restaurantpicker:${{ github.sha }} .
+          docker push $ACR_NAME.azurecr.io/restaurantpicker:${{ github.sha }}
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login with OIDC
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: d86b7e9a-8049-419d-943e-8bf2869a89da
           tenant-id: 9fc151d1-62b8-402f-b07e-91533ff07e0d
           subscription-id: 0a271008-02cf-4a50-9bb3-afc7c4aed74c
 
+      # Create/update the Container App with the new image
       - name: Deploy/Update Container App
         uses: azure/container-apps-deploy-action@v2
         with:
-          acrName: restaurantpickeracr
-          resourceGroup: rg-lab-oscar.pettersson
-          containerAppName: restaurant-picker-ca
-          containerAppEnvironment: managedEnvironment-rglaboscarpette-90b8
-          imageToDeploy: restaurantpickeracr.azurecr.io/restaurantpicker:${{ github.sha }}
+          acrName: ${{ env.ACR_NAME }}
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          containerAppName: ${{ env.CONTAINER_APP_NAME }}
+          containerAppEnvironment: ${{ env.CONTAINER_APP_ENV }}
+          imageToDeploy: ${{ env.ACR_NAME }}.azurecr.io/restaurantpicker:${{ github.sha }}
           dockerfilePath: Dockerfile
 
-      - name: Deploy Frontend
-        if: success()
+      # Hard-set ingress, scale-to-zero, and env/secrets on the Container App
+      - name: Configure Container App (ingress, scale, env/secrets)
+        shell: bash
+        run: |
+          # Ingress + targetPort
+          az containerapp update \
+            -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+            --ingress external --target-port 80
+
+          # Scale to zero with an HTTP concurrency rule
+          az containerapp update \
+            -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+            --min-replicas 0 --max-replicas 2 \
+            --scale-rule-name http \
+            --scale-rule-type http \
+            --scale-rule-http-concurrency 50
+
+          # Secrets (create/update). Expect these to exist as GitHub secrets
+          # (or you can run the az CLI once locally — see the CLI section below).
+          if [[ -n "${{ secrets.DATABASE_URL }}" ]]; then
+            az containerapp secret set -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+              --secrets db-url="${{ secrets.DATABASE_URL }}"
+          fi
+
+          if [[ -n "${{ secrets.REDIS_URL }}" ]]; then
+            az containerapp secret set -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+              --secrets redis-url="${{ secrets.REDIS_URL }}"
+          fi
+
+          if [[ -n "${{ secrets.GOOGLE_API_KEY }}" ]]; then
+            az containerapp secret set -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+              --secrets google-api-key="${{ secrets.GOOGLE_API_KEY }}"
+          fi
+
+          if [[ -n "${{ secrets.AZURE_OPENAI_API_KEY }}" ]]; then
+            az containerapp secret set -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+              --secrets aoai-key="${{ secrets.AZURE_OPENAI_API_KEY }}"
+          fi
+
+          # Non-secret env + secret refs
+          az containerapp update \
+            -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.CONTAINER_APP_NAME }}" \
+            --set-env-vars \
+              DATABASE_URL=secretref:db-url \
+              REDIS_URL=secretref:redis-url \
+              GOOGLE_API_KEY=secretref:google-api-key \
+              AZURE_OPENAI_API_KEY=secretref:aoai-key \
+              AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }} \
+              AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }} \
+              RATE_LIMIT="5/minute" \
+              CACHE_TTL="3600" \
+              CORS_ORIGINS=${{ vars.SWA_ORIGIN }}
+
+      # Build and deploy the Static Web App with API base baked in
+      - name: Deploy Frontend (SWA)
         uses: Azure/static-web-apps-deploy@v1
+        env:
+          REACT_APP_API_BASE: ${{ secrets.API_BASE_URL }}
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "/frontend"
           output_location: "build"
-          skip_app_build: true  # If pre-built; else false
+          skip_app_build: false
+          app_build_command: "npm ci && npm run build"
