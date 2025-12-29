@@ -6,12 +6,25 @@ const API_BASE = process.env.REACT_APP_API_BASE || '';
 export default function AutocompleteInput({
   onSelect,
   disabled = false,
-  userCoords = null,           // ← new prop
+  userCoords = null,
 }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
+  const containerRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setSuggestions([]);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const fetchSuggestions = useCallback(async () => {
     const currentQuery = query;
@@ -51,7 +64,7 @@ export default function AutocompleteInput({
   };
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }} ref={containerRef}>
       <input
         type="text"
         value={query}
