@@ -71,7 +71,7 @@ export default function AutocompleteInput({
         onChange={(e) => setQuery(e.target.value)}
         disabled={disabled}
         placeholder="Start typing…"
-        style={{ width: "80%", padding: ".5rem" }}
+        style={{ width: "100%", padding: ".5rem", boxSizing: "border-box" }}
       />
 
       {loading && <div>Loading...</div>}
@@ -86,7 +86,7 @@ export default function AutocompleteInput({
             listStyle: "none",
             padding: 0,
             margin: 0,
-            width: "80%",
+            width: "100%",
           }}
         >
           {suggestions.map((item) => (
