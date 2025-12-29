@@ -1,3 +1,6 @@
+# create app myself and test for a while to ensure it works well. then open to public?
+# https://console.cloud.google.com/billing/0147C5-9F78FB-C1A42B/reports;timeRange=YEAR_TO_DATE;grouping=GROUP_BY_SKU;projects=gen-lang-client-0700994690?project=gen-lang-client-0700994690
+
 ### Project Overview: Restaurant Discovery and Voting Application *(July 2025 edition)*
 
 #### High-Level Abstraction
