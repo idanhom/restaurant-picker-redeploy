@@ -409,7 +409,7 @@ export default function RestaurantPicker() {
   /* Render                                                           */
   /* ---------------------------------------------------------------- */
   return (
-    <div style={{ display: "flex", maxWidth: 900, margin: "2rem auto" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", maxWidth: 900, margin: "2rem auto", padding: "0 1rem" }}>
       {/* Dropdown for offices */}
       <div style={{ position: "fixed", top: 10, left: "calc(50% - 20px)", transform: "translateX(-50%)" }}>
         <select
