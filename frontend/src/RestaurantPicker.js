@@ -174,10 +174,11 @@ export default function RestaurantPicker() {
 
   useEffect(() => {
     if (offices.length > 0 && !selectedOffice) {
-      const defaultOffice = offices[0];
-      setSelectedOffice(defaultOffice.name);
-      setUserCoords({ lat: defaultOffice.lat, lng: defaultOffice.lng });
-      setCurrentBase(defaultOffice.name);
+      const savedOffice = localStorage.getItem("selected_office");
+      const office = offices.find(o => o.name === savedOffice) || offices[0];
+      setSelectedOffice(office.name);
+      setUserCoords({ lat: office.lat, lng: office.lng });
+      setCurrentBase(office.name);
     }
   }, [offices, selectedOffice]);
 
@@ -220,6 +221,7 @@ export default function RestaurantPicker() {
       setUserCoords({ lat: office.lat, lng: office.lng });
       setCurrentBase(name);
       setIsUsingGeo(false);
+      localStorage.setItem("selected_office", name);
     }
   };
 
