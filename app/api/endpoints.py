@@ -27,7 +27,11 @@ load_dotenv()
 
 _GOOGLE_KEY = os.environ["GOOGLE_API_KEY"]
 _AZURE_OPENAI_DEPLOYMENT = cast(str, os.environ["AZURE_OPENAI_DEPLOYMENT"])
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "changeme")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
+if not ADMIN_TOKEN:
+    import warnings
+    warnings.warn("ADMIN_TOKEN not set - admin features disabled")
+    ADMIN_TOKEN = None  # Or generate a random one that's impossible to guess
 
 DEFAULT_OFFICE = "Gbg-office"
 OFFICES = {
