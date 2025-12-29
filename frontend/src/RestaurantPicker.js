@@ -435,7 +435,12 @@ export default function RestaurantPicker() {
 
       {/* MAIN COLUMN */}
       <main style={{ flex: 1, padding: "1rem", border: "1px solid #ccc" }}>
-        <h1>Redeploy Restaurant Chooser</h1>
+        <h1 
+          style={{ cursor: "pointer" }} 
+          onClick={() => window.location.href = '/'}
+        >
+          Redeploy Restaurant Chooser
+        </h1>
 
         {messages.map((m, i) => (
           <div
