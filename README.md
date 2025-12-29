@@ -1,6 +1,9 @@
 # create app myself and test for a while to ensure it works well. then open to public?
 # https://console.cloud.google.com/billing/0147C5-9F78FB-C1A42B/reports;timeRange=YEAR_TO_DATE;grouping=GROUP_BY_SKU;projects=gen-lang-client-0700994690?project=gen-lang-client-0700994690
 
+# also set restrictions to my endpoint??
+# https://console.cloud.google.com/apis/credentials/key/1ca2b0d8-aad0-4b31-adc1-a5f47834b6b9?project=gen-lang-client-0700994690
+
 ### Project Overview: Restaurant Discovery and Voting Application *(July 2025 edition)*
 
 #### High-Level Abstraction
