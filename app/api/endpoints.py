@@ -626,3 +626,21 @@ async def admin_delete_restaurant(
     db.delete(restaurant)
     db.commit()
     return {"message": "Deleted successfully", "success": True}
+
+@router.delete("/admin/comment/{id}")
+async def admin_delete_comment(
+    request: Request,
+    id: int,
+    db: Session = Depends(get_db),
+):
+    admin_token = request.headers.get("X-Admin-Token")
+    if admin_token != ADMIN_TOKEN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+
+    comment = db.query(DBComment).filter_by(id=id).first()
+    if not comment:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Comment not found.")
+
+    db.delete(comment)
+    db.commit()
+    return {"message": "Comment deleted", "success": True}

@@ -651,7 +651,7 @@ export default function RestaurantPicker() {
       </aside>
 
       {selectedRestaurantForModal && (
-        <RestaurantModal restaurant={selectedRestaurantForModal} onClose={handleCloseModal} />
+        <RestaurantModal restaurant={selectedRestaurantForModal} onClose={handleCloseModal} adminToken={adminToken} />
       )}
     </div>
   );
