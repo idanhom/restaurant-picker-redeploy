@@ -7,14 +7,10 @@ import {
 } from "react";
 import AutocompleteInput from "./AutocompleteInput";
 import AdminConsole from "./AdminConsole";
+import RestaurantModal from "./RestaurantModal";
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
-/* ------------------------------------------------------------------ */
-/* Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
-/** Stable client UUID kept in localStorage (vote dedup) */
 const useClientId = () => {
   return useMemo(() => {
     let id = localStorage.getItem("client_id");
@@ -26,199 +22,203 @@ const useClientId = () => {
   }, []);
 };
 
-/** Reverse-geocode coordinates → friendly “around …” label */
-async function reverseGeocode({ lat, lng }) {
-  const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+async function reverseGeocode(coords) {
+  var lat = coords.lat;
+  var lng = coords.lng;
+  var url = "https://nominatim.openstreetmap.org/reverse?lat=" + lat + "&lon=" + lng + "&format=json";
   try {
-    const res = await fetch(url, {
+    var res = await fetch(url, {
       headers: { "User-Agent": "restaurant-picker-demo/1.0" },
     });
     if (!res.ok) throw new Error();
-    const { address = {}, display_name } = await res.json();
-    const label =
-      address.suburb ??
-      address.neighbourhood ??
-      address.city_district ??
-      address.village ??
-      address.town ??
-      address.city ??
-      display_name?.split(",")[0]?.trim() ??
-      `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
-    return `around ${label}`;
-  } catch {
-    return `around ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+    var data = await res.json();
+    var address = data.address || {};
+    var label = address.suburb || address.neighbourhood || address.city_district || address.village || address.town || address.city || lat.toFixed(3) + ", " + lng.toFixed(3);
+    return "around " + label;
+  } catch (e) {
+    return "around " + lat.toFixed(3) + ", " + lng.toFixed(3);
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Component                                                          */
-/* ------------------------------------------------------------------ */
 export default function RestaurantPicker() {
   const clientId = useClientId();
-const [adminToken, setAdminToken] = useState(
+  const [adminToken, setAdminToken] = useState(
     localStorage.getItem("admin_token") || ""
   );
-
   const [showAdminConsole, setShowAdminConsole] = useState(false);
 
   const officeNames = ["Gbg", "Jkpg", "Sthlm"];
 
-  /* ---- Location & distance ---- */
   const [offices, setOffices] = useState([]);
   const [selectedOffice, setSelectedOffice] = useState("");
   const [userCoords, setUserCoords] = useState(null);
   const [currentBase, setCurrentBase] = useState("");
   const [isUsingGeo, setIsUsingGeo] = useState(false);
-  const [maxDistance, setMaxDistance] = useState(10); // km slider
+  const [maxDistance, setMaxDistance] = useState(10);
 
-  /* ---- Data ---- */
   const [suggestedRestaurants, setSuggestedRestaurants] = useState([]);
-  const [selectedRestaurantToSubmit, setSelectedRestaurantToSubmit] =
-    useState(null);
+  const [selectedRestaurantToSubmit, setSelectedRestaurantToSubmit] = useState(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
   const [cuisineTags, setCuisineTags] = useState([]);
   const [shamedRestaurants, setShamedRestaurants] = useState([]);
-  const [restaurantCounts, setRestaurantCounts] = useState(officeNames.map(name => ({office: name, count: 0})));
+  const [restaurantCounts, setRestaurantCounts] = useState(officeNames.map(function(name) { return {office: name, count: 0}; }));
   const [noRecommendationsMessage, setNoRecommendationsMessage] = useState(null);
 
-  /* ---- UI state ---- */
+  const [expandedCuisine, setExpandedCuisine] = useState(null);
+  const [cuisineRestaurants, setCuisineRestaurants] = useState([]);
+  const [selectedRestaurantForModal, setSelectedRestaurantForModal] = useState(null);
+  const [loadingCuisine, setLoadingCuisine] = useState(false);
+
   const [loadingAction, setLoadingAction] = useState("");
   const [messages, setMessages] = useState([]);
   const [votedIds, setVotedIds] = useState([]);
 
-  /* ---------------------------------------------------------------- */
-  /* Messaging                                                        */
-  /* ---------------------------------------------------------------- */
-  const addMessage = (text, type = "info") => {
-    setMessages((prev) => [...prev, { text, type }]);
-    setTimeout(() => setMessages((prev) => prev.slice(1)), 3000);
+  const addMessage = function(text, type) {
+    if (!type) type = "info";
+    setMessages(function(prev) { return prev.concat([{ text: text, type: type }]); });
+    setTimeout(function() { setMessages(function(prev) { return prev.slice(1); }); }, 3000);
   };
 
-  const truncate = (tag) => tag.split(" ").slice(0, 3).join(" ");
+  const truncate = function(tag) { return tag.split(" ").slice(0, 3).join(" "); };
 
-  /* ---------------------------------------------------------------- */
-  /* Data fetch                                                       */
-  /* ---------------------------------------------------------------- */
-  const fetchSuggestions = useCallback(async () => {
-    const params = new URLSearchParams({office_name: selectedOffice});
+  const fetchSuggestions = useCallback(async function() {
+    var params = new URLSearchParams({office_name: selectedOffice});
     if (userCoords) {
       params.append("user_lat", userCoords.lat);
       params.append("user_lng", userCoords.lng);
     }
-    const r = await fetch(`${API_BASE}/api/suggestions?${params.toString()}`);
+    var r = await fetch(API_BASE + "/api/suggestions?" + params.toString());
     if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
+      var detail = "HTTP " + r.status;
       try {
-        const errJson = await r.json();
+        var errJson = await r.json();
         detail = errJson.detail || detail;
-      } catch {}
-      addMessage(`Error loading suggestions: ${detail}`, "error");
+      } catch (e) {}
+      addMessage("Error loading suggestions: " + detail, "error");
       return;
     }
     setSuggestedRestaurants(await r.json());
   }, [selectedOffice, userCoords]);
 
-  const fetchCuisineTags = useCallback(async () => {
-    const r = await fetch(`${API_BASE}/api/cuisine-tags?office_name=${selectedOffice}`);
+  const fetchCuisineTags = useCallback(async function() {
+    var r = await fetch(API_BASE + "/api/cuisine-tags?office_name=" + selectedOffice);
     if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
+      var detail = "HTTP " + r.status;
       try {
-        const errJson = await r.json();
+        var errJson = await r.json();
         detail = errJson.detail || detail;
-      } catch {}
-      addMessage(`Error loading cuisine tags: ${detail}`, "error");
+      } catch (e) {}
+      addMessage("Error loading cuisine tags: " + detail, "error");
       return;
     }
     setCuisineTags(await r.json());
   }, [selectedOffice]);
 
-  const fetchShamed = useCallback(async () => {
-    const r = await fetch(`${API_BASE}/api/wall-of-shame?office_name=${selectedOffice}`);
+  const fetchShamed = useCallback(async function() {
+    var r = await fetch(API_BASE + "/api/wall-of-shame?office_name=" + selectedOffice);
     if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
+      var detail = "HTTP " + r.status;
       try {
-        const errJson = await r.json();
+        var errJson = await r.json();
         detail = errJson.detail || detail;
-      } catch {}
-      addMessage(`Error loading wall of shame: ${detail}`, "error");
+      } catch (e) {}
+      addMessage("Error loading wall of shame: " + detail, "error");
       return;
     }
     setShamedRestaurants(await r.json());
   }, [selectedOffice]);
 
-  const fetchRestaurantCounts = useCallback(async () => {
-    const r = await fetch(`${API_BASE}/api/restaurant-counts`);
+  const fetchRestaurantCounts = useCallback(async function() {
+    var r = await fetch(API_BASE + "/api/restaurant-counts");
     if (!r.ok) {
-      let detail = `HTTP ${r.status}`;
+      var detail = "HTTP " + r.status;
       try {
-        const errJson = await r.json();
+        var errJson = await r.json();
         detail = errJson.detail || detail;
-      } catch {}
-      addMessage(`Error loading restaurant counts: ${detail}`, "error");
+      } catch (e) {}
+      addMessage("Error loading restaurant counts: " + detail, "error");
       return;
     }
-    const data = await r.json();
-    const updatedCounts = officeNames.map(name => {
-      const found = data.find(d => d.office === `${name}-office`);
+    var data = await r.json();
+    var updatedCounts = officeNames.map(function(name) {
+      var found = data.find(function(d) { return d.office === name + "-office"; });
       return {office: name, count: found ? found.count : 0};
     });
     setRestaurantCounts(updatedCounts);
   }, []);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/offices`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const fetchRestaurantsByCuisine = async function(cuisine) {
+    if (expandedCuisine === cuisine) {
+      setExpandedCuisine(null);
+      setCuisineRestaurants([]);
+      return;
+    }
+    setLoadingCuisine(true);
+    try {
+      var params = new URLSearchParams({ cuisine: cuisine, office_name: selectedOffice });
+      var r = await fetch(API_BASE + "/api/restaurants/by-cuisine?" + params);
+      if (r.ok) {
+        setCuisineRestaurants(await r.json());
+        setExpandedCuisine(cuisine);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingCuisine(false);
+    }
+  };
+
+  useEffect(function() {
+    fetch(API_BASE + "/api/offices")
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       })
       .then(setOffices)
-      .catch((e) => addMessage(`Error loading offices: ${e.message}`, "error"));
+      .catch(function(e) { addMessage("Error loading offices: " + e.message, "error"); });
   }, []);
 
-  useEffect(() => {
+  useEffect(function() {
     if (offices.length > 0 && !selectedOffice) {
-      const savedOffice = localStorage.getItem("selected_office");
-      const office = offices.find(o => o.name === savedOffice) || offices[0];
+      var savedOffice = localStorage.getItem("selected_office");
+      var office = offices.find(function(o) { return o.name === savedOffice; }) || offices[0];
       setSelectedOffice(office.name);
       setUserCoords({ lat: office.lat, lng: office.lng });
       setCurrentBase(office.name);
     }
   }, [offices, selectedOffice]);
 
-  useEffect(() => {
+  useEffect(function() {
     if (selectedOffice) {
       fetchSuggestions();
       fetchCuisineTags();
       fetchShamed();
       fetchRestaurantCounts();
+      setExpandedCuisine(null);
+      setCuisineRestaurants([]);
     }
   }, [selectedOffice, fetchSuggestions, fetchCuisineTags, fetchShamed, fetchRestaurantCounts]);
 
-  /* ---------------------------------------------------------------- */
-  /* Geolocation                                                      */
-  /* ---------------------------------------------------------------- */
-  const enableGeolocation = () => {
+  const enableGeolocation = function() {
     if (!navigator.geolocation) {
       return addMessage("Geolocation not supported", "error");
     }
     navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        const { latitude: lat, longitude: lng } = coords;
-        setUserCoords({ lat, lng });
-        const address = await reverseGeocode({ lat, lng });
+      async function(position) {
+        var lat = position.coords.latitude;
+        var lng = position.coords.longitude;
+        setUserCoords({ lat: lat, lng: lng });
+        var address = await reverseGeocode({ lat: lat, lng: lng });
         setCurrentBase(address);
         setIsUsingGeo(true);
         addMessage("Using your device location", "success");
       },
-      () => addMessage("Location permission denied", "error")
+      function() { addMessage("Location permission denied", "error"); }
     );
   };
 
-  /* ---------------------------------------------------------------- */
-  /* Office selection                                                 */
-  /* ---------------------------------------------------------------- */
-  const handleOfficeChange = (name) => {
-    const office = offices.find((o) => o.name === name);
+  const handleOfficeChange = function(name) {
+    var office = offices.find(function(o) { return o.name === name; });
     if (office) {
       setSelectedOffice(name);
       setUserCoords({ lat: office.lat, lng: office.lng });
@@ -228,16 +228,14 @@ const [adminToken, setAdminToken] = useState(
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /* Actions                                                          */
-  /* ---------------------------------------------------------------- */
-  const submitRestaurant = async () => {
-    if (!selectedRestaurantToSubmit)
+  const submitRestaurant = async function() {
+    if (!selectedRestaurantToSubmit) {
       return addMessage("Select a restaurant first", "warning");
+    }
 
     setLoadingAction("submit");
     try {
-      const payload = {
+      var payload = {
         google_id: selectedRestaurantToSubmit.google_id,
         office_name: selectedOffice,
       };
@@ -245,15 +243,15 @@ const [adminToken, setAdminToken] = useState(
         payload.user_lat = userCoords.lat;
         payload.user_lng = userCoords.lng;
       }
-      const r = await fetch(`${API_BASE}/api/submit-restaurant`, {
+      var r = await fetch(API_BASE + "/api/submit-restaurant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      let resJson;
+      var resJson;
       try {
         resJson = await r.json();
-      } catch {
+      } catch (e) {
         resJson = {};
       }
       if (!r.ok) {
@@ -267,32 +265,33 @@ const [adminToken, setAdminToken] = useState(
       fetchShamed();
       fetchRestaurantCounts();
     } catch (e) {
-      addMessage(`Submission failed: ${e.message}`, "error");
+      addMessage("Submission failed: " + e.message, "error");
     } finally {
       setLoadingAction("");
     }
   };
 
-  const voteRestaurant = async (id, up = true) => {
+  const voteRestaurant = async function(id, up) {
+    if (up === undefined) up = true;
     if (votedIds.includes(id) && !adminToken) return;
 
-    setLoadingAction(`vote-${id}`);
+    setLoadingAction("vote-" + id);
     try {
-      const headers = { 
+      var headers = { 
         "Content-Type": "application/json",
         "X-Client-ID": clientId 
       };
       if (adminToken) headers["X-Admin-Token"] = adminToken;
 
-      const r = await fetch(`${API_BASE}/api/vote-restaurant/${id}`, {
+      var r = await fetch(API_BASE + "/api/vote-restaurant/" + id, {
         method: "POST",
-        headers,
-        body: JSON.stringify({ up }),
+        headers: headers,
+        body: JSON.stringify({ up: up }),
       });
-      let resJson;
+      var resJson;
       try {
         resJson = await r.json();
-      } catch {
+      } catch (e) {
         resJson = {};
       }
       if (!r.ok) {
@@ -300,20 +299,20 @@ const [adminToken, setAdminToken] = useState(
         return;
       }
       addMessage(resJson.message || "Voted successfully", resJson.success ? "success" : "error");
-      setVotedIds((p) => [...p, id]);
+      setVotedIds(function(p) { return p.concat([id]); });
       fetchSuggestions();
       fetchCuisineTags();
       fetchShamed();
       fetchRestaurantCounts();
     } catch (e) {
-      addMessage(`Vote failed: ${e.message}`, "error");
+      addMessage("Vote failed: " + e.message, "error");
     } finally {
       setLoadingAction("");
     }
   };
 
-  const randomizeRestaurant = async () => {
-    const payload = { 
+  const randomizeRestaurant = async function() {
+    var payload = { 
       max_distance_km: maxDistance,
       office_name: selectedOffice 
     };
@@ -323,60 +322,60 @@ const [adminToken, setAdminToken] = useState(
     setNoRecommendationsMessage(null);
     setSelectedRestaurant(null);
     try {
-      const r = await fetch(`${API_BASE}/api/random-restaurant`, {
+      var r = await fetch(API_BASE + "/api/random-restaurant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (r.status === 404) {
-        let detail = "";
+        var detail = "";
         try {
-          const errJson = await r.json();
+          var errJson = await r.json();
           detail = errJson.detail || "";
-        } catch {}
-        let locationDesc;
+        } catch (e) {}
+        var locationDesc;
         if (isUsingGeo) {
-          locationDesc = `your location of ${currentBase}`;
+          locationDesc = "your location of " + currentBase;
         } else {
-          const shortName = selectedOffice.replace("-office", "");
-          locationDesc = `the ${shortName} office area`;
+          var shortName = selectedOffice.replace("-office", "");
+          locationDesc = "the " + shortName + " office area";
         }
-        setNoRecommendationsMessage(detail || `There are no recommendations within ${locationDesc}`);
+        setNoRecommendationsMessage(detail || "There are no recommendations within " + locationDesc);
         return;
       }
       if (!r.ok) {
-        let detail = "Search failed";
+        var detail2 = "Search failed";
         try {
-          const errJson = await r.json();
-          detail = errJson.detail || detail;
-        } catch {}
-        addMessage(detail, "error");
+          var errJson2 = await r.json();
+          detail2 = errJson2.detail || detail2;
+        } catch (e) {}
+        addMessage(detail2, "error");
         return;
       }
       setSelectedRestaurant(await r.json());
       fetchCuisineTags();
       fetchShamed();
     } catch (e) {
-      addMessage(`Search failed: ${e.message}`, "error");
+      addMessage("Search failed: " + e.message, "error");
     } finally {
       setLoadingAction("");
     }
   };
 
-  const removeShameRestaurant = async (id) => {
+  const removeShameRestaurant = async function(id) {
     if (!adminToken) return;
 
-    setLoadingAction(`remove-shame-${id}`);
+    setLoadingAction("remove-shame-" + id);
     try {
-      const headers = { "X-Admin-Token": adminToken };
-      const r = await fetch(`${API_BASE}/api/shame-restaurant/${id}`, {
+      var headers = { "X-Admin-Token": adminToken };
+      var r = await fetch(API_BASE + "/api/shame-restaurant/" + id, {
         method: "DELETE",
-        headers,
+        headers: headers,
       });
-      let resJson;
+      var resJson;
       try {
         resJson = await r.json();
-      } catch {
+      } catch (e) {
         resJson = {};
       }
       if (!r.ok) {
@@ -386,17 +385,14 @@ const [adminToken, setAdminToken] = useState(
       addMessage(resJson.message || "Removed successfully", resJson.success ? "success" : "error");
       fetchShamed();
     } catch (e) {
-      addMessage(`Removal failed: ${e.message}`, "error");
+      addMessage("Removal failed: " + e.message, "error");
     } finally {
       setLoadingAction("");
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /* Admin login / logout                                             */
-  /* ---------------------------------------------------------------- */
-  const handleAdminLogin = () => {
-    const tok = prompt("Enter admin token");
+  const handleAdminLogin = function() {
+    var tok = prompt("Enter admin token");
     if (tok) {
       localStorage.setItem("admin_token", tok);
       setAdminToken(tok);
@@ -404,154 +400,138 @@ const [adminToken, setAdminToken] = useState(
     }
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = function() {
     localStorage.removeItem("admin_token");
     setAdminToken("");
     addMessage("Admin mode disabled", "info");
   };
 
-  /* ---------------------------------------------------------------- */
-  /* Render                                                           */
-  /* ---------------------------------------------------------------- */
+  function handleShowAdminConsole() {
+    setShowAdminConsole(true);
+  }
+
+  function handleCloseAdminConsole() {
+    setShowAdminConsole(false);
+    fetchSuggestions();
+    fetchCuisineTags();
+    fetchShamed();
+    fetchRestaurantCounts();
+  }
+
+  function handleOfficeSelect(e) {
+    handleOfficeChange(e.target.value);
+  }
+
+  function handleSliderChange(e) {
+    setMaxDistance(Number(e.target.value));
+  }
+
+  function handleTitleClick() {
+    window.location.href = '/';
+  }
+
+  function handleCloseModal() {
+    setSelectedRestaurantForModal(null);
+  }
+
+  function getMessageBg(type) {
+    if (type === "error") return "#ffcdd2";
+    if (type === "success") return "#c8e6c9";
+    return "#e3f2fd";
+  }
+
+  function getMapsUrl(address) {
+    return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(address || "");
+  }
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", maxWidth: 900, margin: "2rem auto", padding: "0 1rem" }}>
-      {/* Dropdown for offices */}
       <div style={{ position: "fixed", top: 10, left: "calc(50% - 20px)", transform: "translateX(-50%)" }}>
-        <select
-          value={selectedOffice}
-          onChange={(e) => handleOfficeChange(e.target.value)}
-        >
-          {offices.map((office) => (
-            <option key={office.name} value={office.name}>
-              {office.address}
-            </option>
-          ))}
+        <select value={selectedOffice} onChange={handleOfficeSelect}>
+          {offices.map(function(office) {
+            return <option key={office.name} value={office.name}>{office.address}</option>;
+          })}
         </select>
       </div>
 
-      {/* Admin button */}
-            <div style={{ position: "fixed", top: 10, right: 10 }}>
-              {adminToken ? (
-                <>
-                  <button onClick={() => setShowAdminConsole(true)} style={{ marginRight: "0.5rem" }}>
-                    Admin Console
-                  </button>
-                  <button onClick={handleAdminLogout}>Logout</button>
-                </>
-              ) : (
-                <button onClick={handleAdminLogin}>Admin Login</button>
-              )}
-            </div>
+      <div style={{ position: "fixed", top: 10, right: 10 }}>
+        {adminToken ? (
+          <span>
+            <button onClick={handleShowAdminConsole} style={{ marginRight: "0.5rem" }}>Admin Console</button>
+            <button onClick={handleAdminLogout}>Logout</button>
+          </span>
+        ) : (
+          <button onClick={handleAdminLogin}>Admin Login</button>
+        )}
+      </div>
 
-      {/* Admin Console Modal */}
       {showAdminConsole && adminToken && (
-        <AdminConsole
-          adminToken={adminToken}
-          onClose={() => {
-            setShowAdminConsole(false);
-            fetchSuggestions();
-            fetchCuisineTags();
-            fetchShamed();
-            fetchRestaurantCounts();
-          }}
-        />
+        <AdminConsole adminToken={adminToken} onClose={handleCloseAdminConsole} />
       )}
 
-      {/* MAIN COLUMN */}
       <main style={{ flex: 1, padding: "1rem", border: "1px solid #ccc" }}>
-        <h1 
-          style={{ cursor: "pointer" }} 
-          onClick={() => window.location.href = '/'}
-        >
-          Redeploy Restaurant Chooser
-        </h1>
+        <h1 style={{ cursor: "pointer" }} onClick={handleTitleClick}>Redeploy Restaurant Picker</h1>
 
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              padding: ".5rem",
-              margin: ".25rem 0",
-              background:
-                m.type === "error"
-                  ? "#ffcdd2"
-                  : m.type === "success"
-                  ? "#c8e6c9"
-                  : "#e3f2fd",
-            }}
-          >
-            {m.text}
-          </div>
-        ))}
+        {messages.map(function(m, i) {
+          return (
+            <div key={i} style={{ padding: ".5rem", margin: ".25rem 0", background: getMessageBg(m.type) }}>
+              {m.text}
+            </div>
+          );
+        })}
 
-        {/* Submit ----------------------------------------------------- */}
         <section style={{ marginBottom: "2rem" }}>
           <h2>Enter a Restaurant</h2>
-
-          {/* Autocomplete now uses userCoords for distance calc */}
           <AutocompleteInput
             onSelect={setSelectedRestaurantToSubmit}
             disabled={loadingAction === "submit"}
             userCoords={userCoords}
           />
-
           <button
             onClick={submitRestaurant}
-            disabled={
-              loadingAction === "submit" || !selectedRestaurantToSubmit
-            }
+            disabled={loadingAction === "submit" || !selectedRestaurantToSubmit}
             style={{ padding: ".5rem 1rem" }}
           >
-            {loadingAction === "submit" ? "Submitting…" : "Submit Restaurant"}
+            {loadingAction === "submit" ? "Submitting..." : "Submit Restaurant"}
           </button>
         </section>
 
-        {/* Vote ------------------------------------------------------- */}
         <section style={{ marginBottom: "2rem" }}>
           <h2>Vote on Suggested Restaurants</h2>
           {suggestedRestaurants.length === 0 ? (
             <p>No suggestions currently available.</p>
           ) : (
-            suggestedRestaurants.map((r) => {
-              const net = r.up_votes - r.down_votes;
-              const voting = loadingAction === `vote-${r.id}`;
-              const already = votedIds.includes(r.id);
-              const disabled = (!adminToken && already) || r.promoted || voting;
-              const location = r.address ? r.address.split(',')[0].trim() : '';
+            suggestedRestaurants.map(function(r) {
+              var net = r.up_votes - r.down_votes;
+              var voting = loadingAction === "vote-" + r.id;
+              var already = votedIds.includes(r.id);
+              var disabled = (!adminToken && already) || r.promoted || voting;
+              var location = r.address ? r.address.split(',')[0].trim() : '';
 
               return (
-                <div
-                  key={r.id}
-                  style={{
-                    marginBottom: "1rem",
-                    borderBottom: "1px solid #eee",
-                    paddingBottom: ".5rem",
-                  }}
-                >
+                <div key={r.id} style={{ marginBottom: "1rem", borderBottom: "1px solid #eee", paddingBottom: ".5rem" }}>
                   <p>
                     <strong>{r.name} at {location}</strong>
-                    {r.promoted && (
-                      <span style={{ marginLeft: 8, color: "green" }}>[Validated]</span>
-                    )}
+                    {r.promoted && <span style={{ marginLeft: 8, color: "green" }}>[Validated]</span>}
                   </p>
                   <p>Up: {r.up_votes} | Down: {r.down_votes} | Net: {net}</p>
                   {!r.promoted && (
-                    <>
+                    <span>
                       <button
-                        onClick={() => voteRestaurant(r.id, true)}
+                        onClick={function() { voteRestaurant(r.id, true); }}
                         disabled={disabled}
                         style={{ padding: ".25rem .75rem", marginRight: ".5rem" }}
                       >
-                        {voting ? "Voting…" : already && !adminToken ? "Voted" : "Upvote"}
+                        {voting ? "Voting..." : (already && !adminToken) ? "Voted" : "Upvote"}
                       </button>
                       <button
-                        onClick={() => voteRestaurant(r.id, false)}
+                        onClick={function() { voteRestaurant(r.id, false); }}
                         disabled={disabled}
                         style={{ padding: ".25rem .75rem", background: "#ffdddd" }}
                       >
-                        {voting ? "Voting…" : already && !adminToken ? "Voted" : "Downvote"}
+                        {voting ? "Voting..." : (already && !adminToken) ? "Voted" : "Downvote"}
                       </button>
-                    </>
+                    </span>
                   )}
                 </div>
               );
@@ -559,10 +539,8 @@ const [adminToken, setAdminToken] = useState(
           )}
         </section>
 
-        {/* Randomize --------------------------------------------------- */}
         <section style={{ marginBottom: "2rem" }}>
           <h2>Find a Restaurant</h2>
-
           <label style={{ display: "block", marginBottom: ".5rem" }}>
             Max distance: {maxDistance} km
             <input
@@ -570,14 +548,12 @@ const [adminToken, setAdminToken] = useState(
               min="1"
               max="25"
               value={maxDistance}
-              onChange={(e) => setMaxDistance(Number(e.target.value))}
+              onChange={handleSliderChange}
               style={{ width: "80%" }}
             />
           </label>
-
           <p style={{ margin: 0, fontSize: ".9rem", color: "#555" }}>
-            Current base:&nbsp;
-            {isUsingGeo ? currentBase : currentBase}
+            Current base: {currentBase}
             <button
               type="button"
               onClick={enableGeolocation}
@@ -586,93 +562,97 @@ const [adminToken, setAdminToken] = useState(
               Use my geo-location
             </button>
           </p>
-
           <button
             onClick={randomizeRestaurant}
             disabled={loadingAction === "randomize"}
             style={{ padding: ".5rem 1rem", marginTop: ".5rem" }}
           >
-            {loadingAction === "randomize" ? "Searching…" : "Randomize Restaurant"}
+            {loadingAction === "randomize" ? "Searching..." : "Randomize Restaurant"}
           </button>
         </section>
 
-        {/* Recommended ---------------------------------------------- */}
-        {noRecommendationsMessage && (
-          <p style={{ color: "#888" }}>{noRecommendationsMessage}</p>
-        )}
+        {noRecommendationsMessage && <p style={{ color: "#888" }}>{noRecommendationsMessage}</p>}
+        
         {selectedRestaurant && (
           <section style={{ borderTop: "1px solid #eee", paddingTop: "1rem" }}>
             <h2>Recommended Restaurant</h2>
-            <p>
-              <strong>Name:</strong> {selectedRestaurant.name} at {selectedRestaurant.address ? selectedRestaurant.address.split(',')[0].trim() : ''}
-            </p>
-            <p>
-              <strong>Type:</strong> {selectedRestaurant.type}{" "}
-              <em>(AI classification)</em>
-            </p>
-            <p>
-              <strong>Distance:</strong> {selectedRestaurant.distance} km
-            </p>
-            <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                selectedRestaurant.address
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "#007bff" }}
-            >
-              View on Google Maps
-            </a>
+            <p><strong>Name:</strong> {selectedRestaurant.name} at {selectedRestaurant.address ? selectedRestaurant.address.split(',')[0].trim() : ''}</p>
+            <p><strong>Type:</strong> {selectedRestaurant.type} <em>(AI classification)</em></p>
+            <p><strong>Distance:</strong> {selectedRestaurant.distance} km</p>
+            <a href={getMapsUrl(selectedRestaurant.address)} target="_blank" rel="noopener noreferrer" style={{ color: "#007bff" }}>View on Google Maps</a>
           </section>
         )}
       </main>
 
-      {/* Sidebar */}
       <aside style={{ width: 200, marginLeft: "1rem" }}>
         <h3 style={{ marginTop: 0 }}>Good Restaurants</h3>
         <ul style={{ listStyle: "none", padding: 0 }}>
-          {restaurantCounts.map((rc, i) => (
-            <li key={i} style={{ padding: ".25rem 0" }}>
-              {rc.office}: {rc.count}
-            </li>
-          ))}
+          {restaurantCounts.map(function(rc, i) {
+            return <li key={i} style={{ padding: ".25rem 0" }}>{rc.office}: {rc.count}</li>;
+          })}
         </ul>
 
         <h3>Restaurant Types</h3>
         <ul style={{ listStyle: "none", padding: 0 }}>
-          {cuisineTags.map((t, i) => (
-            <li key={i} style={{ padding: ".25rem 0" }}>
-              {truncate(t.cuisine)} ({t.count})
-            </li>
-          ))}
+          {cuisineTags.map(function(t, i) {
+            var arrow = expandedCuisine === t.cuisine ? " v" : " >";
+            return (
+              <li key={i} style={{ padding: ".25rem 0" }}>
+                <span
+                  onClick={function() { fetchRestaurantsByCuisine(t.cuisine); }}
+                  style={{ cursor: "pointer", color: "#007bff" }}
+                >
+                  {truncate(t.cuisine)} ({t.count}){arrow}
+                </span>
+                {expandedCuisine === t.cuisine && (
+                  <ul style={{ listStyle: "none", padding: "0.25rem 0 0 1rem", margin: 0 }}>
+                    {loadingCuisine ? (
+                      <li style={{ color: "#888" }}>Loading...</li>
+                    ) : (
+                      cuisineRestaurants.map(function(r) {
+                        return (
+                          <li
+                            key={r.id}
+                            onClick={function() { setSelectedRestaurantForModal(r); }}
+                            style={{ padding: "0.25rem 0", cursor: "pointer", color: "#333" }}
+                          >
+                            {r.name}
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
         </ul>
 
-      <h3>Wall of Shame</h3>
-      <ul style={{ listStyle: "none", padding: 0 }}>
-        {shamedRestaurants.map((r) => (
-          <li key={r.id} style={{ padding: ".25rem 0", display: "flex", alignItems: "center" }}>
-            <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${r.name} ${r.address || ''}`)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "#007bff", textDecoration: "none", flex: 1 }}
-            >
-              {r.name}
-            </a>
-            {r.address && ` (${r.address})`}
-            {adminToken && (
-              <button
-                onClick={() => removeShameRestaurant(r.id)}
-                disabled={loadingAction === `remove-shame-${r.id}`}
-                style={{ marginLeft: "auto", padding: ".25rem .5rem", background: "#ffdddd" }}
-              >
-                {loadingAction === `remove-shame-${r.id}` ? "Removing..." : "-"}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+        <h3>Wall of Shame</h3>
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          {shamedRestaurants.map(function(r) {
+            var shameUrl = getMapsUrl(r.name + " " + (r.address || ""));
+            return (
+              <li key={r.id} style={{ padding: ".25rem 0", display: "flex", alignItems: "center" }}>
+                <a href={shameUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#007bff", textDecoration: "none", flex: 1 }}>{r.name}</a>
+                {adminToken && (
+                  <button
+                    onClick={function() { removeShameRestaurant(r.id); }}
+                    disabled={loadingAction === "remove-shame-" + r.id}
+                    style={{ marginLeft: "auto", padding: ".25rem .5rem", background: "#ffdddd" }}
+                  >
+                    {loadingAction === "remove-shame-" + r.id ? "..." : "-"}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </aside>
+
+      {selectedRestaurantForModal && (
+        <RestaurantModal restaurant={selectedRestaurantForModal} onClose={handleCloseModal} />
+      )}
     </div>
   );
 }

@@ -19,8 +19,8 @@ from sqlalchemy import func
 import app.crud as crud
 from app.db.session import get_db
 from app.dependencies import get_cache, limiter, set_cache, redis_client
-from app.models import Restaurant as DBRestaurant, ShameRestaurant
-from app.schemas import RestaurantCreate, RestaurantView, ShameRestaurantView
+from app.models import Restaurant as DBRestaurant, ShameRestaurant, Comment as DBComment
+from app.schemas import RestaurantCreate, RestaurantView, ShameRestaurantView, CommentView
 
 # ─────────────────────────── Config ────────────────────────────────
 load_dotenv()
@@ -494,6 +494,67 @@ async def delete_shame_restaurant(
         await redis_client.delete(cache_key)
     crud.delete_shame_restaurant(db, id)
     return {"message": f"{name} removed from wall of shame", "success": True}
+
+# ───────────────────── Restaurant Details & Comments ─────────────────────
+@router.get("/restaurants/by-cuisine")
+async def get_restaurants_by_cuisine(
+    request: Request,
+    cuisine: str = Query(...),
+    office_name: str | None = Query(None),
+    db: Session = Depends(get_db),
+) -> List[RestaurantView]:
+    query = db.query(DBRestaurant).filter(
+        DBRestaurant.cuisine == cuisine,
+        DBRestaurant.promoted == True
+    )
+    if office_name:
+        query = query.filter(DBRestaurant.office_name == office_name)
+    restaurants = query.order_by(DBRestaurant.name).all()
+    return [RestaurantView.model_validate(r, from_attributes=True) for r in restaurants]
+
+
+@router.get("/restaurant/{id}/comments")
+async def get_restaurant_comments(
+    request: Request,
+    id: int,
+    db: Session = Depends(get_db),
+) -> List[CommentView]:
+    comments = db.query(DBComment).filter(DBComment.restaurant_id == id).order_by(DBComment.created_at.desc()).all()
+    return [CommentView.model_validate(c, from_attributes=True) for c in comments]
+
+
+@router.post("/restaurant/{id}/comments")
+@limiter.limit(RATE_LIMIT)
+async def add_restaurant_comment(
+    request: Request,
+    id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    restaurant = db.query(DBRestaurant).filter_by(id=id).first()
+    if not restaurant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Restaurant not found.")
+    
+    author_name = data.get("author_name", "").strip()
+    text = data.get("text", "").strip()
+    
+    if not author_name or not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Author name and comment text are required.")
+    
+    if len(text) > 500:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Comment too long (max 500 characters).")
+    
+    comment = DBComment(
+        restaurant_id=id,
+        author_name=author_name[:50],
+        text=text,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return {"message": "Comment added", "success": True, "id": comment.id}
+
+
 
 # ───────────────────── Admin Endpoints ─────────────────────
 @router.get("/admin/restaurants")

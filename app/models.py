@@ -51,3 +51,12 @@ class ShameRestaurant(Base):
     down_votes = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     office_name = Column(String, nullable=True)
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id = Column(Integer, primary_key=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    author_name = Column(String, nullable=False)
+    text = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
