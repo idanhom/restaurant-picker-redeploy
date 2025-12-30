@@ -2,31 +2,33 @@ import { useState, useEffect } from "react";
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
-export default function RestaurantModal({ restaurant, onClose }) {
+export default function RestaurantModal({ restaurant, onClose, adminToken }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [authorName, setAuthorName] = useState(localStorage.getItem("comment_author") || "");
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [message, setMessage] = useState(null);
 
   useEffect(function() {
-    async function fetchComments() {
-      try {
-        var url = API_BASE + "/api/restaurant/" + restaurant.id + "/comments";
-        var r = await fetch(url);
-        if (r.ok) {
-          var data = await r.json();
-          setComments(data);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchComments();
   }, [restaurant.id]);
+
+  async function fetchComments() {
+    try {
+      var url = API_BASE + "/api/restaurant/" + restaurant.id + "/comments";
+      var r = await fetch(url);
+      if (r.ok) {
+        var data = await r.json();
+        setComments(data);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function submitComment() {
     if (!authorName.trim() || !commentText.trim()) {
@@ -53,15 +55,36 @@ export default function RestaurantModal({ restaurant, onClose }) {
       }
       setMessage({ type: "success", text: "Recommendation added!" });
       setCommentText("");
-      var cr = await fetch(url);
-      if (cr.ok) {
-        var newComments = await cr.json();
-        setComments(newComments);
-      }
+      fetchComments();
     } catch (e) {
       setMessage({ type: "error", text: e.message });
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function deleteComment(commentId) {
+    if (!adminToken) return;
+    if (!window.confirm("Delete this recommendation?")) return;
+
+    setDeletingId(commentId);
+    try {
+      var url = API_BASE + "/api/admin/comment/" + commentId;
+      var r = await fetch(url, {
+        method: "DELETE",
+        headers: { "X-Admin-Token": adminToken }
+      });
+      var data = await r.json();
+      if (!r.ok) {
+        setMessage({ type: "error", text: data.detail || "Failed to delete" });
+        return;
+      }
+      setMessage({ type: "success", text: "Recommendation deleted" });
+      fetchComments();
+    } catch (e) {
+      setMessage({ type: "error", text: e.message });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -94,12 +117,32 @@ export default function RestaurantModal({ restaurant, onClose }) {
       <ul style={{ listStyle: "none", padding: 0 }}>
         {comments.map(function(c) {
           var dateStr = new Date(c.created_at).toLocaleDateString();
+          var isDeleting = deletingId === c.id;
           return (
-            <li key={c.id} style={{ padding: "0.75rem", marginBottom: "0.5rem", background: "#f9f9f9", borderRadius: 4 }}>
-              <p style={{ margin: 0 }}>{c.text}</p>
+            <li key={c.id} style={{ padding: "0.75rem", marginBottom: "0.5rem", background: "#f9f9f9", borderRadius: 4, position: "relative" }}>
+              <p style={{ margin: 0, paddingRight: adminToken ? "2rem" : "0" }}>{c.text}</p>
               <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "#888" }}>
                 - {c.author_name}, {dateStr}
               </p>
+              {adminToken && (
+                <button
+                  onClick={function() { deleteComment(c.id); }}
+                  disabled={isDeleting}
+                  style={{
+                    position: "absolute",
+                    top: "0.5rem",
+                    right: "0.5rem",
+                    padding: "0.15rem 0.4rem",
+                    fontSize: "0.75rem",
+                    background: "#ffdddd",
+                    border: "1px solid #ccc",
+                    borderRadius: 3,
+                    cursor: "pointer"
+                  }}
+                >
+                  {isDeleting ? "..." : "X"}
+                </button>
+              )}
             </li>
           );
         })}
