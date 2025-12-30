@@ -2,6 +2,15 @@ import { useState, useEffect } from "react";
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
+function getClientId() {
+  var id = localStorage.getItem("client_id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("client_id", id);
+  }
+  return id;
+}
+
 export default function RestaurantModal({ restaurant, onClose, adminToken }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10,14 +19,7 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [votingId, setVotingId] = useState(null);
-  const [votedComments, setVotedComments] = useState(function() {
-    try {
-      var stored = localStorage.getItem("voted_comments");
-      return stored ? JSON.parse(stored) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [votedComments, setVotedComments] = useState([]);
   const [message, setMessage] = useState(null);
 
   useEffect(function() {
@@ -98,7 +100,7 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
   }
 
   async function voteComment(commentId, up) {
-    if (votedComments.includes(commentId) && !adminToken) {
+    if (votedComments.includes(commentId)) {
       setMessage({ type: "error", text: "You already voted on this" });
       return;
     }
@@ -108,22 +110,23 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
       var url = API_BASE + "/api/comment/" + commentId + "/vote";
       var r = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Client-ID": getClientId()
+        },
         body: JSON.stringify({ up: up })
       });
       var data = await r.json();
       if (!r.ok) {
+        if (data.detail === "Already voted on this comment.") {
+          setVotedComments(function(prev) { return prev.concat([commentId]); });
+        }
         setMessage({ type: "error", text: data.detail || "Failed to vote" });
         return;
       }
       
-      // Save voted comment to localStorage
-      if (!adminToken) {
-        var newVoted = votedComments.concat([commentId]);
-        setVotedComments(newVoted);
-        localStorage.setItem("voted_comments", JSON.stringify(newVoted));
-      }
-      
+      setVotedComments(function(prev) { return prev.concat([commentId]); });
+      setMessage({ type: "success", text: "Vote recorded" });
       fetchComments();
     } catch (e) {
       setMessage({ type: "error", text: e.message });
@@ -163,7 +166,7 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
           var dateStr = new Date(c.created_at).toLocaleDateString();
           var isDeleting = deletingId === c.id;
           var isVoting = votingId === c.id;
-          var hasVoted = votedComments.includes(c.id) && !adminToken;
+          var hasVoted = votedComments.includes(c.id);
           
           return (
             <li key={c.id} style={{ padding: "0.75rem", marginBottom: "0.5rem", background: "#f9f9f9", borderRadius: 4, position: "relative" }}>
