@@ -64,3 +64,21 @@ class ShameRestaurantView(BaseModel):
     office_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Comments
+# ──────────────────────────────────────────────────────────────────────────────
+class CommentCreate(BaseModel):
+    author_name: str
+    text: str
+
+
+class CommentView(BaseModel):
+    id: int
+    restaurant_id: int
+    author_name: str
+    text: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
