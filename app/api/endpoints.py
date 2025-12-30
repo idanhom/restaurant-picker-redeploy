@@ -19,7 +19,7 @@ from sqlalchemy import func
 import app.crud as crud
 from app.db.session import get_db
 from app.dependencies import get_cache, limiter, set_cache, redis_client
-from app.models import Restaurant as DBRestaurant, ShameRestaurant, Comment as DBComment
+from app.models import Restaurant as DBRestaurant, ShameRestaurant, Comment as DBComment, CommentVote
 from app.schemas import RestaurantCreate, RestaurantView, ShameRestaurantView, CommentView
 
 # ─────────────────────────── Config ────────────────────────────────
@@ -555,6 +555,37 @@ async def add_restaurant_comment(
     return {"message": "Comment added", "success": True, "id": comment.id}
 
 
+@router.post("/comment/{id}/vote")
+@limiter.limit(RATE_LIMIT)
+async def vote_comment(
+    request: Request,
+    id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    client_uuid = request.headers.get("X-Client-ID")
+    if not client_uuid:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Client ID required.")
+
+    comment = db.query(DBComment).filter_by(id=id).first()
+    if not comment:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Comment not found.")
+    
+    existing_vote = db.query(CommentVote).filter_by(comment_id=id, client_uuid=client_uuid).first()
+    if existing_vote:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Already voted on this comment.")
+    
+    up = data.get("up", True)
+    if up:
+        comment.up_votes += 1
+    else:
+        comment.down_votes += 1
+    
+    vote = CommentVote(comment_id=id, client_uuid=client_uuid)
+    db.add(vote)
+    db.commit()
+    
+    return {"message": "Vote recorded", "success": True, "up_votes": comment.up_votes, "down_votes": comment.down_votes}
 
 # ───────────────────── Admin Endpoints ─────────────────────
 @router.get("/admin/restaurants")

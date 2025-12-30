@@ -59,4 +59,14 @@ class Comment(Base):
     restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
     author_name = Column(String, nullable=False)
     text = Column(String, nullable=False)
+    up_votes = Column(Integer, default=0)
+    down_votes = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CommentVote(Base):
+    __tablename__ = "comment_votes"
+    id = Column(Integer, primary_key=True)
+    comment_id = Column(Integer, ForeignKey("comments.id"), nullable=False)
+    client_uuid = Column(String, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
