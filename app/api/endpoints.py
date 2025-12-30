@@ -443,7 +443,11 @@ async def get_cuisine_tags(
 ) -> List[dict]:
     _ = request
     query = db.query(DBRestaurant.cuisine, func.count(DBRestaurant.cuisine))
-    query = query.filter(DBRestaurant.cuisine.isnot(None), DBRestaurant.cuisine != "Unknown")
+    query = query.filter(
+        DBRestaurant.cuisine.isnot(None),
+        DBRestaurant.cuisine != "Unknown",
+        DBRestaurant.promoted == True
+    )
     if office_name:
         query = query.filter(DBRestaurant.office_name == office_name)
     rows = query.group_by(DBRestaurant.cuisine) \
