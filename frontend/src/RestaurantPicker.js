@@ -6,6 +6,7 @@ import {
   useMemo,
 } from "react";
 import AutocompleteInput from "./AutocompleteInput";
+import AdminConsole from "./AdminConsole";
 
 const API_BASE = process.env.REACT_APP_API_BASE || '';
 
@@ -54,9 +55,11 @@ async function reverseGeocode({ lat, lng }) {
 /* ------------------------------------------------------------------ */
 export default function RestaurantPicker() {
   const clientId = useClientId();
-  const [adminToken, setAdminToken] = useState(
+const [adminToken, setAdminToken] = useState(
     localStorage.getItem("admin_token") || ""
   );
+
+  const [showAdminConsole, setShowAdminConsole] = useState(false);
 
   const officeNames = ["Gbg", "Jkpg", "Sthlm"];
 
@@ -427,13 +430,32 @@ export default function RestaurantPicker() {
       </div>
 
       {/* Admin button */}
-      <div style={{ position: "fixed", top: 10, right: 10 }}>
-        {adminToken ? (
-          <button onClick={handleAdminLogout}>Admin Logout</button>
-        ) : (
-          <button onClick={handleAdminLogin}>Admin Login</button>
-        )}
-      </div>
+            <div style={{ position: "fixed", top: 10, right: 10 }}>
+              {adminToken ? (
+                <>
+                  <button onClick={() => setShowAdminConsole(true)} style={{ marginRight: "0.5rem" }}>
+                    Admin Console
+                  </button>
+                  <button onClick={handleAdminLogout}>Logout</button>
+                </>
+              ) : (
+                <button onClick={handleAdminLogin}>Admin Login</button>
+              )}
+            </div>
+
+      {/* Admin Console Modal */}
+      {showAdminConsole && adminToken && (
+        <AdminConsole
+          adminToken={adminToken}
+          onClose={() => {
+            setShowAdminConsole(false);
+            fetchSuggestions();
+            fetchCuisineTags();
+            fetchShamed();
+            fetchRestaurantCounts();
+          }}
+        />
+      )}
 
       {/* MAIN COLUMN */}
       <main style={{ flex: 1, padding: "1rem", border: "1px solid #ccc" }}>

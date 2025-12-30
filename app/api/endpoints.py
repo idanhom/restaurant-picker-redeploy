@@ -490,3 +490,74 @@ async def delete_shame_restaurant(
         await redis_client.delete(cache_key)
     crud.delete_shame_restaurant(db, id)
     return {"message": f"{name} removed from wall of shame", "success": True}
+
+# ───────────────────── Admin Endpoints ─────────────────────
+@router.get("/admin/restaurants")
+async def admin_get_restaurants(
+    request: Request,
+    db: Session = Depends(get_db),
+    office_name: str | None = Query(None),
+    promoted: bool | None = Query(None),
+):
+    admin_token = request.headers.get("X-Admin-Token")
+    if admin_token != ADMIN_TOKEN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+
+    query = db.query(DBRestaurant)
+    if office_name:
+        query = query.filter(DBRestaurant.office_name == office_name)
+    if promoted is not None:
+        query = query.filter(DBRestaurant.promoted == promoted)
+    
+    restaurants = query.order_by(DBRestaurant.created_at.desc()).all()
+    return [RestaurantView.model_validate(r, from_attributes=True) for r in restaurants]
+
+
+@router.patch("/admin/restaurant/{id}")
+async def admin_update_restaurant(
+    request: Request,
+    id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    admin_token = request.headers.get("X-Admin-Token")
+    if admin_token != ADMIN_TOKEN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+
+    restaurant = db.query(DBRestaurant).filter_by(id=id).first()
+    if not restaurant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Restaurant not found.")
+
+    if "cuisine" in data:
+        restaurant.cuisine = data["cuisine"]
+    if "promoted" in data:
+        restaurant.promoted = data["promoted"]
+    if "name" in data:
+        restaurant.name = data["name"]
+    if "office_name" in data:
+        restaurant.office_name = data["office_name"]
+
+    db.commit()
+    db.refresh(restaurant)
+    return {"message": "Updated successfully", "success": True}
+
+
+@router.delete("/admin/restaurant/{id}")
+async def admin_delete_restaurant(
+    request: Request,
+    id: int,
+    db: Session = Depends(get_db),
+):
+    admin_token = request.headers.get("X-Admin-Token")
+    if admin_token != ADMIN_TOKEN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+
+    restaurant = db.query(DBRestaurant).filter_by(id=id).first()
+    if not restaurant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Restaurant not found.")
+
+    await redis_client.delete(f"submit:{restaurant.google_id}")
+    
+    db.delete(restaurant)
+    db.commit()
+    return {"message": "Deleted successfully", "success": True}
