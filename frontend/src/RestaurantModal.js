@@ -30,7 +30,7 @@ export default function RestaurantModal({ restaurant, onClose }) {
 
   async function submitComment() {
     if (!authorName.trim() || !commentText.trim()) {
-      setMessage({ type: "error", text: "Please enter your name and comment" });
+      setMessage({ type: "error", text: "Please enter your name and recommendation" });
       return;
     }
 
@@ -48,10 +48,10 @@ export default function RestaurantModal({ restaurant, onClose }) {
       });
       var data = await r.json();
       if (!r.ok) {
-        setMessage({ type: "error", text: data.detail || "Failed to add comment" });
+        setMessage({ type: "error", text: data.detail || "Failed to add recommendation" });
         return;
       }
-      setMessage({ type: "success", text: "Comment added!" });
+      setMessage({ type: "success", text: "Recommendation added!" });
       setCommentText("");
       var cr = await fetch(url);
       if (cr.ok) {
@@ -85,10 +85,10 @@ export default function RestaurantModal({ restaurant, onClose }) {
 
   function renderComments() {
     if (loading) {
-      return <p>Loading comments...</p>;
+      return <p>Loading...</p>;
     }
     if (comments.length === 0) {
-      return <p style={{ color: "#888" }}>No tips yet. Be the first to share!</p>;
+      return <p style={{ color: "#888" }}>No recommendations yet.</p>;
     }
     return (
       <ul style={{ listStyle: "none", padding: 0 }}>
@@ -117,7 +117,7 @@ export default function RestaurantModal({ restaurant, onClose }) {
     );
   }
 
-  var buttonText = submitting ? "Submitting..." : "Add Tip";
+  var buttonText = submitting ? "Adding..." : "Add";
 
   return (
     <div onClick={handleBackdropClick} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
@@ -132,15 +132,15 @@ export default function RestaurantModal({ restaurant, onClose }) {
         <a href={mapsUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#007bff" }}>View on Google Maps</a>
 
         <hr style={{ margin: "1rem 0" }} />
-        <h3>Dish Suggestions and Tips</h3>
+        <h3>Recommended Dishes</h3>
         {renderComments()}
 
         <hr style={{ margin: "1rem 0" }} />
-        <h4>Add a tip</h4>
+        <h4>Recommend a dish</h4>
         {renderMessage()}
 
         <input type="text" placeholder="Your name" value={authorName} onChange={handleAuthorChange} style={{ width: "100%", padding: "0.5rem", marginBottom: "0.5rem", boxSizing: "border-box" }} />
-        <textarea placeholder="Share a dish recommendation or tip..." value={commentText} onChange={handleTextChange} rows={3} style={{ width: "100%", padding: "0.5rem", marginBottom: "0.5rem", boxSizing: "border-box", resize: "vertical" }} />
+        <textarea placeholder="What dish do you recommend?" value={commentText} onChange={handleTextChange} rows={3} style={{ width: "100%", padding: "0.5rem", marginBottom: "0.5rem", boxSizing: "border-box", resize: "vertical" }} />
         <button onClick={submitComment} disabled={submitting} style={{ padding: "0.5rem 1rem" }}>{buttonText}</button>
       </div>
     </div>
