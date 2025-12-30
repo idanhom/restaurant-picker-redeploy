@@ -79,6 +79,8 @@ class CommentView(BaseModel):
     restaurant_id: int
     author_name: str
     text: str
+    up_votes: int
+    down_votes: int
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

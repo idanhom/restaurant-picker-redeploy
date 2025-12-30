@@ -9,6 +9,15 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [votingId, setVotingId] = useState(null);
+  const [votedComments, setVotedComments] = useState(function() {
+    try {
+      var stored = localStorage.getItem("voted_comments");
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [message, setMessage] = useState(null);
 
   useEffect(function() {
@@ -88,6 +97,41 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
     }
   }
 
+  async function voteComment(commentId, up) {
+    if (votedComments.includes(commentId) && !adminToken) {
+      setMessage({ type: "error", text: "You already voted on this" });
+      return;
+    }
+
+    setVotingId(commentId);
+    try {
+      var url = API_BASE + "/api/comment/" + commentId + "/vote";
+      var r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ up: up })
+      });
+      var data = await r.json();
+      if (!r.ok) {
+        setMessage({ type: "error", text: data.detail || "Failed to vote" });
+        return;
+      }
+      
+      // Save voted comment to localStorage
+      if (!adminToken) {
+        var newVoted = votedComments.concat([commentId]);
+        setVotedComments(newVoted);
+        localStorage.setItem("voted_comments", JSON.stringify(newVoted));
+      }
+      
+      fetchComments();
+    } catch (e) {
+      setMessage({ type: "error", text: e.message });
+    } finally {
+      setVotingId(null);
+    }
+  }
+
   function handleBackdropClick() {
     onClose();
   }
@@ -118,12 +162,48 @@ export default function RestaurantModal({ restaurant, onClose, adminToken }) {
         {comments.map(function(c) {
           var dateStr = new Date(c.created_at).toLocaleDateString();
           var isDeleting = deletingId === c.id;
+          var isVoting = votingId === c.id;
+          var hasVoted = votedComments.includes(c.id) && !adminToken;
+          
           return (
             <li key={c.id} style={{ padding: "0.75rem", marginBottom: "0.5rem", background: "#f9f9f9", borderRadius: 4, position: "relative" }}>
               <p style={{ margin: 0, paddingRight: adminToken ? "2rem" : "0" }}>{c.text}</p>
               <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "#888" }}>
                 - {c.author_name}, {dateStr}
               </p>
+              
+              <div style={{ marginTop: "0.5rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <button
+                  onClick={function() { voteComment(c.id, true); }}
+                  disabled={isVoting || hasVoted}
+                  style={{
+                    padding: "0.2rem 0.5rem",
+                    fontSize: "0.8rem",
+                    background: hasVoted ? "#e0e0e0" : "#e8f5e9",
+                    border: "1px solid #c8e6c9",
+                    borderRadius: 3,
+                    cursor: hasVoted ? "not-allowed" : "pointer"
+                  }}
+                >
+                  +{c.up_votes || 0}
+                </button>
+                <button
+                  onClick={function() { voteComment(c.id, false); }}
+                  disabled={isVoting || hasVoted}
+                  style={{
+                    padding: "0.2rem 0.5rem",
+                    fontSize: "0.8rem",
+                    background: hasVoted ? "#e0e0e0" : "#ffebee",
+                    border: "1px solid #ffcdd2",
+                    borderRadius: 3,
+                    cursor: hasVoted ? "not-allowed" : "pointer"
+                  }}
+                >
+                  -{c.down_votes || 0}
+                </button>
+                {isVoting && <span style={{ fontSize: "0.8rem", color: "#888" }}>...</span>}
+              </div>
+              
               {adminToken && (
                 <button
                   onClick={function() { deleteComment(c.id); }}

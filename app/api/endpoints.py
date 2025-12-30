@@ -555,6 +555,26 @@ async def add_restaurant_comment(
     return {"message": "Comment added", "success": True, "id": comment.id}
 
 
+@router.post("/comment/{id}/vote")
+@limiter.limit(RATE_LIMIT)
+async def vote_comment(
+    request: Request,
+    id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    comment = db.query(DBComment).filter_by(id=id).first()
+    if not comment:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Comment not found.")
+    
+    up = data.get("up", True)
+    if up:
+        comment.up_votes += 1
+    else:
+        comment.down_votes += 1
+    
+    db.commit()
+    return {"message": "Vote recorded", "success": True, "up_votes": comment.up_votes, "down_votes": comment.down_votes}
 
 # ───────────────────── Admin Endpoints ─────────────────────
 @router.get("/admin/restaurants")
