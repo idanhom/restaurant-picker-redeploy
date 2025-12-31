@@ -439,15 +439,26 @@ export default function RestaurantPicker() {
   }
 
   function handleCustomDistanceApply() {
-    var val = parseFloat(customDistance);
+    var input = customDistance.trim().toLowerCase();
+    var val;
+    
+    if (input.endsWith("km")) {
+      val = parseFloat(input.replace("km", ""));
+    } else if (input.endsWith("m")) {
+      val = parseFloat(input.replace("m", "")) / 1000;
+    } else {
+      val = parseFloat(input);
+      // Assume meters if > 25, otherwise km
+      if (val > 25) {
+        val = val / 1000;
+      }
+    }
+    
     if (isNaN(val) || val <= 0) {
       addMessage("Please enter a valid distance", "error");
       return;
     }
-    // Convert to km if user likely entered meters (value > 25 assumed to be meters)
-    if (val > 25) {
-      val = val / 1000;
-    }
+    
     setMaxDistance(val);
   }
 
@@ -624,13 +635,12 @@ export default function RestaurantPicker() {
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
             <input
               type="text"
-              placeholder="Custom (e.g. 350 or 1.5)"
+              placeholder="e.g. 350m or 1.5km"
               value={customDistance}
               onChange={handleCustomDistanceChange}
               onKeyPress={handleCustomDistanceKeyPress}
-              style={{ padding: "0.4rem", width: "140px", boxSizing: "border-box" }}
+              style={{ padding: "0.4rem", width: "130px", boxSizing: "border-box" }}
             />
-            <span style={{ fontSize: "0.8rem", color: "#888" }}>m or km</span>
             <button
               onClick={handleCustomDistanceApply}
               style={{ padding: "0.4rem 0.75rem" }}
