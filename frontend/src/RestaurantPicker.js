@@ -523,7 +523,7 @@ export default function RestaurantPicker() {
 
       <main style={{ flex: 1, padding: "1rem", border: "1px solid #ccc" }}>
         <h1 style={{ cursor: "pointer" }} onClick={handleTitleClick}>
-          Redeploy Restaurant Chooser
+          Redeploy Restaurant Picker
           {adminToken && <span style={{ fontSize: "0.7rem", color: "#888", marginLeft: "0.5rem" }}>(admin)</span>}
         </h1>
 
