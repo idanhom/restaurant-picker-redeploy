@@ -46,6 +46,7 @@ export default function RestaurantPicker() {
     localStorage.getItem("admin_token") || ""
   );
   const [showAdminConsole, setShowAdminConsole] = useState(false);
+  const [titleClicks, setTitleClicks] = useState(0);
 
   const officeNames = ["Gbg", "Jkpg", "Sthlm"];
 
@@ -406,10 +407,6 @@ export default function RestaurantPicker() {
     addMessage("Admin mode disabled", "info");
   };
 
-  function handleShowAdminConsole() {
-    setShowAdminConsole(true);
-  }
-
   function handleCloseAdminConsole() {
     setShowAdminConsole(false);
     fetchSuggestions();
@@ -427,7 +424,21 @@ export default function RestaurantPicker() {
   }
 
   function handleTitleClick() {
-    window.location.href = '/';
+    var newCount = titleClicks + 1;
+    setTitleClicks(newCount);
+    
+    if (newCount >= 3) {
+      setTitleClicks(0);
+      if (adminToken) {
+        setShowAdminConsole(true);
+      } else {
+        handleAdminLogin();
+      }
+    }
+    
+    setTimeout(function() {
+      setTitleClicks(0);
+    }, 1000);
   }
 
   function handleCloseModal() {
@@ -454,23 +465,23 @@ export default function RestaurantPicker() {
         </select>
       </div>
 
-      <div style={{ position: "fixed", top: 10, right: 10 }}>
-        {adminToken ? (
-          <span>
-            <button onClick={handleShowAdminConsole} style={{ marginRight: "0.5rem" }}>Admin Console</button>
-            <button onClick={handleAdminLogout}>Logout</button>
-          </span>
-        ) : (
-          <button onClick={handleAdminLogin}>Admin Login</button>
-        )}
-      </div>
-
       {showAdminConsole && adminToken && (
         <AdminConsole adminToken={adminToken} onClose={handleCloseAdminConsole} />
       )}
 
       <main style={{ flex: 1, padding: "1rem", border: "1px solid #ccc" }}>
-        <h1 style={{ cursor: "pointer" }} onClick={handleTitleClick}>Redeploy Restaurant Picker</h1>
+        <h1 style={{ cursor: "pointer" }} onClick={handleTitleClick}>
+          Redeploy Restaurant Chooser
+          {adminToken && <span style={{ fontSize: "0.7rem", color: "#888", marginLeft: "0.5rem" }}>(admin)</span>}
+        </h1>
+
+        {adminToken && (
+          <div style={{ marginBottom: "1rem" }}>
+            <button onClick={handleAdminLogout} style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }}>
+              Logout Admin
+            </button>
+          </div>
+        )}
 
         {messages.map(function(m, i) {
           return (
