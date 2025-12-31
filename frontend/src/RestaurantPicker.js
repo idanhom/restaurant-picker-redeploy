@@ -40,6 +40,15 @@ async function reverseGeocode(coords) {
   }
 }
 
+// Distance presets in km
+var DISTANCE_PRESETS = [
+  { label: "300m", value: 0.3 },
+  { label: "500m", value: 0.5 },
+  { label: "1km", value: 1 },
+  { label: "2km", value: 2 },
+  { label: "5km", value: 5 }
+];
+
 export default function RestaurantPicker() {
   const clientId = useClientId();
   const [adminToken, setAdminToken] = useState(
@@ -55,7 +64,8 @@ export default function RestaurantPicker() {
   const [userCoords, setUserCoords] = useState(null);
   const [currentBase, setCurrentBase] = useState("");
   const [isUsingGeo, setIsUsingGeo] = useState(false);
-  const [maxDistance, setMaxDistance] = useState(10);
+  const [maxDistance, setMaxDistance] = useState(1);
+  const [customDistance, setCustomDistance] = useState("");
 
   const [suggestedRestaurants, setSuggestedRestaurants] = useState([]);
   const [selectedRestaurantToSubmit, setSelectedRestaurantToSubmit] = useState(null);
@@ -419,8 +429,43 @@ export default function RestaurantPicker() {
     handleOfficeChange(e.target.value);
   }
 
-  function handleSliderChange(e) {
-    setMaxDistance(Number(e.target.value));
+  function handleDistancePreset(value) {
+    setMaxDistance(value);
+    setCustomDistance("");
+  }
+
+  function handleCustomDistanceChange(e) {
+    setCustomDistance(e.target.value);
+  }
+
+  function handleCustomDistanceApply() {
+    var input = customDistance.trim().toLowerCase();
+    var val;
+    
+    if (input.endsWith("km")) {
+      val = parseFloat(input.replace("km", ""));
+    } else if (input.endsWith("m")) {
+      val = parseFloat(input.replace("m", "")) / 1000;
+    } else {
+      val = parseFloat(input);
+      // Assume meters if > 25, otherwise km
+      if (val > 25) {
+        val = val / 1000;
+      }
+    }
+    
+    if (isNaN(val) || val <= 0) {
+      addMessage("Please enter a valid distance", "error");
+      return;
+    }
+    
+    setMaxDistance(val);
+  }
+
+  function handleCustomDistanceKeyPress(e) {
+    if (e.key === "Enter") {
+      handleCustomDistanceApply();
+    }
   }
 
   function handleTitleClick() {
@@ -453,6 +498,13 @@ export default function RestaurantPicker() {
 
   function getMapsUrl(address) {
     return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(address || "");
+  }
+
+  function formatDistance(km) {
+    if (km < 1) {
+      return Math.round(km * 1000) + "m";
+    }
+    return km + "km";
   }
 
   return (
@@ -552,17 +604,51 @@ export default function RestaurantPicker() {
 
         <section style={{ marginBottom: "2rem" }}>
           <h2>Find a Restaurant</h2>
-          <label style={{ display: "block", marginBottom: ".5rem" }}>
-            Max distance: {maxDistance} km
+          
+          <div style={{ marginBottom: "0.75rem" }}>
+            <span style={{ fontSize: "0.9rem", color: "#555", marginRight: "0.5rem" }}>Max distance:</span>
+            <strong>{formatDistance(maxDistance)}</strong>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+            {DISTANCE_PRESETS.map(function(preset) {
+              var isSelected = maxDistance === preset.value;
+              return (
+                <button
+                  key={preset.value}
+                  onClick={function() { handleDistancePreset(preset.value); }}
+                  style={{
+                    padding: "0.4rem 0.75rem",
+                    background: isSelected ? "#007bff" : "#f0f0f0",
+                    color: isSelected ? "white" : "#333",
+                    border: "1px solid " + (isSelected ? "#007bff" : "#ccc"),
+                    borderRadius: 4,
+                    cursor: "pointer"
+                  }}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
             <input
-              type="range"
-              min="1"
-              max="25"
-              value={maxDistance}
-              onChange={handleSliderChange}
-              style={{ width: "80%" }}
+              type="text"
+              placeholder="e.g. 350m or 1.5km"
+              value={customDistance}
+              onChange={handleCustomDistanceChange}
+              onKeyPress={handleCustomDistanceKeyPress}
+              style={{ padding: "0.4rem", width: "130px", boxSizing: "border-box" }}
             />
-          </label>
+            <button
+              onClick={handleCustomDistanceApply}
+              style={{ padding: "0.4rem 0.75rem" }}
+            >
+              Apply
+            </button>
+          </div>
+
           <p style={{ margin: 0, fontSize: ".9rem", color: "#555" }}>
             Current base: {currentBase}
             <button
