@@ -21,7 +21,7 @@ def register_vote(db: Session, restaurant_id: int, client_uuid: str):
     db.commit()
 
 
-# ─────────────────────── Restaurant CRUD (unchanged) ───────────────────────
+# ─────────────────────── Restaurant CRUD ───────────────────────
 def get_restaurant_by_google_id(db: Session, google_id: str):
     return db.query(Restaurant).filter(Restaurant.google_id == google_id).first()
 
@@ -61,13 +61,22 @@ def update_votes(db: Session, restaurant: Restaurant, up: bool):
     )
     promoted_update = case((promoted_expr, True), else_=Restaurant.promoted)
 
-    db.query(Restaurant).filter(Restaurant.id == restaurant.id).update(
+    restaurant_id = restaurant.id  # Store ID before any changes
+    
+    db.query(Restaurant).filter(Restaurant.id == restaurant_id).update(
         {vote_col: incr_expr, Restaurant.promoted: promoted_update}
     )
     db.commit()
-    db.refresh(restaurant)
-
-    if not up and restaurant.down_votes >= 3:  # Adjust to >3 if strict
+    
+    # Expire the cached object and re-fetch from DB to get accurate values
+    db.expire(restaurant)
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    
+    if not restaurant:
+        return None
+    
+    # Check for shame using freshly fetched values
+    if not up and restaurant.down_votes >= 3:
         # Move to shame
         shame = ShameRestaurant(
             google_id=restaurant.google_id,
