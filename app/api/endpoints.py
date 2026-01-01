@@ -274,6 +274,7 @@ async def submit_restaurant(
 async def random_restaurant(
     request: Request, data: dict, db: Session = Depends(get_db)
 ):
+    min_km: float | None = data.get("min_distance_km")
     max_km: float | None = data.get("max_distance_km")
     user_location = data.get("userLocation")
     user_lat = user_location.get("lat") if user_location else None
@@ -287,15 +288,22 @@ async def random_restaurant(
     if not promoted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No promoted restaurants available yet.")
 
+    def filter_by_distance(km: float) -> bool:
+        """Returns True if the distance is within the specified range."""
+        if km > MAX_DISTANCE_KM:
+            return False
+        if min_km is not None and km < min_km:
+            return False
+        if max_km is not None and km > max_km:
+            return False
+        return True
+
     if user_lat is not None and user_lng is not None:
         candidates = []
         for r in promoted:
             km = _drive_distance_km(r.lat, r.lng, user_lat, user_lng)
-            if km > MAX_DISTANCE_KM:
-                continue
-            if max_km is not None and km > max_km:
-                continue
-            candidates.append((r, km))
+            if filter_by_distance(km):
+                candidates.append((r, km))
         if not candidates:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No promoted restaurants within the specified range.")
         chosen, distance = random.choice(candidates)
@@ -311,11 +319,8 @@ async def random_restaurant(
         candidates = []
         for r in promoted:
             km = _drive_distance_km(r.lat, r.lng, origin_lat, origin_lng)
-            if km > MAX_DISTANCE_KM:
-                continue
-            if max_km is not None and km > max_km:
-                continue
-            candidates.append((r, km))
+            if filter_by_distance(km):
+                candidates.append((r, km))
         if not candidates:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No promoted restaurants within the specified range.")
         chosen, distance = random.choice(candidates)
@@ -329,11 +334,8 @@ async def random_restaurant(
         candidates = []
         for r in promoted:
             km = r.distance_from_office
-            if km > MAX_DISTANCE_KM:
-                continue
-            if max_km is not None and km > max_km:
-                continue
-            candidates.append((r, km))
+            if filter_by_distance(km):
+                candidates.append((r, km))
         if not candidates:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No promoted restaurants within the specified range.")
         chosen, distance = random.choice(candidates)
