@@ -49,7 +49,16 @@ var DISTANCE_PRESETS = [
   { label: "5km", value: 5 }
 ];
 
-// Parse distance input (e.g., "350m", "1.5km", or bare number)
+// Range "from" presets (no 0 - use Radius mode for that)
+var RANGE_FROM_PRESETS = [
+  { label: "300m", value: 0.3 },
+  { label: "500m", value: 0.5 },
+  { label: "1km", value: 1 },
+  { label: "2km", value: 2 },
+  { label: "3km", value: 3 }
+];
+
+// Parse distance input - REQUIRES unit (m or km)
 function parseDistanceInput(input) {
   var trimmed = input.trim().toLowerCase();
   var val;
@@ -59,14 +68,11 @@ function parseDistanceInput(input) {
   } else if (trimmed.endsWith("m")) {
     val = parseFloat(trimmed.replace("m", "")) / 1000;
   } else {
-    val = parseFloat(trimmed);
-    // Assume meters if > 25, otherwise km
-    if (val > 25) {
-      val = val / 1000;
-    }
+    // No unit provided - reject
+    return null;
   }
   
-  if (isNaN(val) || val <= 0) {
+  if (isNaN(val) || val < 0) {
     return null;
   }
   return val;
@@ -74,6 +80,9 @@ function parseDistanceInput(input) {
 
 // Format distance for display
 function formatDistance(km) {
+  if (km === 0) {
+    return "0m";
+  }
   if (km < 1) {
     return Math.round(km * 1000) + "m";
   }
@@ -104,7 +113,7 @@ export default function RestaurantPicker() {
   const [customDistance, setCustomDistance] = useState("");
   
   // Range mode state
-  const [minDistance, setMinDistance] = useState(0.5);
+  const [minDistance, setMinDistance] = useState(0.3);
   const [maxRangeDistance, setMaxRangeDistance] = useState(2);
   const [customMinDistance, setCustomMinDistance] = useState("");
   const [customMaxDistance, setCustomMaxDistance] = useState("");
@@ -492,7 +501,7 @@ export default function RestaurantPicker() {
   function handleCustomDistanceApply() {
     var val = parseDistanceInput(customDistance);
     if (val === null) {
-      addMessage("Please enter a valid distance", "error");
+      addMessage("Please enter a valid distance with unit (e.g. 500m or 1.5km)", "error");
       return;
     }
     setMaxDistance(val);
@@ -533,21 +542,26 @@ export default function RestaurantPicker() {
   }
 
   function handleCustomRangeApply() {
-    var minVal = customMinDistance ? parseDistanceInput(customMinDistance) : minDistance;
-    var maxVal = customMaxDistance ? parseDistanceInput(customMaxDistance) : maxRangeDistance;
+    var minVal = customMinDistance ? parseDistanceInput(customMinDistance) : null;
+    var maxVal = customMaxDistance ? parseDistanceInput(customMaxDistance) : null;
     
-    if (minVal === null || maxVal === null) {
-      addMessage("Please enter valid distances", "error");
+    // If neither field has input, nothing to apply
+    if (minVal === null && maxVal === null) {
+      addMessage("Please enter at least one distance with unit (e.g. 0m, 500m, or 1.5km)", "error");
       return;
     }
     
-    if (minVal >= maxVal) {
+    // Use current values if custom field is empty
+    var newMin = minVal !== null ? minVal : minDistance;
+    var newMax = maxVal !== null ? maxVal : maxRangeDistance;
+    
+    if (newMin >= newMax) {
       addMessage("Min distance must be less than max distance", "error");
       return;
     }
     
-    setMinDistance(minVal);
-    setMaxRangeDistance(maxVal);
+    setMinDistance(newMin);
+    setMaxRangeDistance(newMax);
     setCustomMinDistance("");
     setCustomMaxDistance("");
   }
@@ -786,7 +800,7 @@ export default function RestaurantPicker() {
               <div style={{ marginBottom: "0.75rem" }}>
                 <span style={{ fontSize: "0.9rem", color: "#555", marginRight: "0.5rem" }}>From:</span>
                 <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                  {DISTANCE_PRESETS.map(function(preset) {
+                  {RANGE_FROM_PRESETS.map(function(preset) {
                     var isSelected = minDistance === preset.value;
                     return (
                       <button
@@ -839,20 +853,20 @@ export default function RestaurantPicker() {
                 <span style={{ fontSize: "0.9rem", color: "#555" }}>Custom:</span>
                 <input
                   type="text"
-                  placeholder="e.g. 800m"
+                  placeholder="e.g. 0m or 800m"
                   value={customMinDistance}
                   onChange={handleCustomMinChange}
                   onKeyPress={handleCustomRangeKeyPress}
-                  style={{ padding: "0.4rem", width: "100px", boxSizing: "border-box" }}
+                  style={{ padding: "0.4rem", width: "110px", boxSizing: "border-box" }}
                 />
                 <span style={{ fontSize: "0.9rem", color: "#555" }}>to</span>
                 <input
                   type="text"
-                  placeholder="e.g. 2km"
+                  placeholder="e.g. 2km or 500m"
                   value={customMaxDistance}
                   onChange={handleCustomMaxChange}
                   onKeyPress={handleCustomRangeKeyPress}
-                  style={{ padding: "0.4rem", width: "100px", boxSizing: "border-box" }}
+                  style={{ padding: "0.4rem", width: "110px", boxSizing: "border-box" }}
                 />
                 <button
                   onClick={handleCustomRangeApply}
