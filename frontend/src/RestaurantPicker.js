@@ -780,7 +780,7 @@ export default function RestaurantPicker() {
                   placeholder="e.g. 350m or 1.5km"
                   value={customDistance}
                   onChange={handleCustomDistanceChange}
-                  onKeyPress={handleCustomDistanceKeyPress}
+                  onKeyDown={handleCustomDistanceKeyPress}
                   style={{ padding: "0.4rem", width: "140px", boxSizing: "border-box" }}
                 />
                 <button
@@ -853,19 +853,21 @@ export default function RestaurantPicker() {
                 <span style={{ fontSize: "0.9rem", color: "#555" }}>Custom:</span>
                 <input
                   type="text"
-                  placeholder="e.g. 0m or 800m"
+                  placeholder="e.g. 800m"
+                  title="Enter distance with unit, e.g. 0m, 800m, or 1.5km"
                   value={customMinDistance}
                   onChange={handleCustomMinChange}
-                  onKeyPress={handleCustomRangeKeyPress}
+                  onKeyDown={handleCustomRangeKeyPress}
                   style={{ padding: "0.4rem", width: "110px", boxSizing: "border-box" }}
                 />
                 <span style={{ fontSize: "0.9rem", color: "#555" }}>to</span>
                 <input
                   type="text"
-                  placeholder="e.g. 2km or 500m"
+                  placeholder="e.g. 2km"
+                  title="Enter distance with unit, e.g. 500m, 2km, or 1.5km"
                   value={customMaxDistance}
                   onChange={handleCustomMaxChange}
-                  onKeyPress={handleCustomRangeKeyPress}
+                  onKeyDown={handleCustomRangeKeyPress}
                   style={{ padding: "0.4rem", width: "110px", boxSizing: "border-box" }}
                 />
                 <button
