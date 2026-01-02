@@ -49,6 +49,46 @@ var DISTANCE_PRESETS = [
   { label: "5km", value: 5 }
 ];
 
+// Range "from" presets (no 0 - use Radius mode for that)
+var RANGE_FROM_PRESETS = [
+  { label: "300m", value: 0.3 },
+  { label: "500m", value: 0.5 },
+  { label: "1km", value: 1 },
+  { label: "2km", value: 2 },
+  { label: "3km", value: 3 }
+];
+
+// Parse distance input - REQUIRES unit (m or km)
+function parseDistanceInput(input) {
+  var trimmed = input.trim().toLowerCase();
+  var val;
+  
+  if (trimmed.endsWith("km")) {
+    val = parseFloat(trimmed.replace("km", ""));
+  } else if (trimmed.endsWith("m")) {
+    val = parseFloat(trimmed.replace("m", "")) / 1000;
+  } else {
+    // No unit provided - reject
+    return null;
+  }
+  
+  if (isNaN(val) || val < 0) {
+    return null;
+  }
+  return val;
+}
+
+// Format distance for display
+function formatDistance(km) {
+  if (km === 0) {
+    return "0m";
+  }
+  if (km < 1) {
+    return Math.round(km * 1000) + "m";
+  }
+  return km + "km";
+}
+
 export default function RestaurantPicker() {
   const clientId = useClientId();
   const [adminToken, setAdminToken] = useState(
@@ -64,8 +104,19 @@ export default function RestaurantPicker() {
   const [userCoords, setUserCoords] = useState(null);
   const [currentBase, setCurrentBase] = useState("");
   const [isUsingGeo, setIsUsingGeo] = useState(false);
+  
+  // Distance mode: "radius" or "range"
+  const [distanceMode, setDistanceMode] = useState("radius");
+  
+  // Radius mode state
   const [maxDistance, setMaxDistance] = useState(1);
   const [customDistance, setCustomDistance] = useState("");
+  
+  // Range mode state
+  const [minDistance, setMinDistance] = useState(0.3);
+  const [maxRangeDistance, setMaxRangeDistance] = useState(0.5);
+  const [customMinDistance, setCustomMinDistance] = useState("");
+  const [customMaxDistance, setCustomMaxDistance] = useState("");
 
   const [suggestedRestaurants, setSuggestedRestaurants] = useState([]);
   const [selectedRestaurantToSubmit, setSelectedRestaurantToSubmit] = useState(null);
@@ -324,9 +375,17 @@ export default function RestaurantPicker() {
 
   const randomizeRestaurant = async function() {
     var payload = { 
-      max_distance_km: maxDistance,
       office_name: selectedOffice 
     };
+    
+    // Set distance parameters based on mode
+    if (distanceMode === "radius") {
+      payload.max_distance_km = maxDistance;
+    } else {
+      payload.min_distance_km = minDistance;
+      payload.max_distance_km = maxRangeDistance;
+    }
+    
     if (userCoords) payload.userLocation = userCoords;
 
     setLoadingAction("randomize");
@@ -429,7 +488,8 @@ export default function RestaurantPicker() {
     handleOfficeChange(e.target.value);
   }
 
-  function handleDistancePreset(value) {
+  // Radius mode handlers
+  function handleRadiusPreset(value) {
     setMaxDistance(value);
     setCustomDistance("");
   }
@@ -439,32 +499,76 @@ export default function RestaurantPicker() {
   }
 
   function handleCustomDistanceApply() {
-    var input = customDistance.trim().toLowerCase();
-    var val;
-    
-    if (input.endsWith("km")) {
-      val = parseFloat(input.replace("km", ""));
-    } else if (input.endsWith("m")) {
-      val = parseFloat(input.replace("m", "")) / 1000;
-    } else {
-      val = parseFloat(input);
-      // Assume meters if > 25, otherwise km
-      if (val > 25) {
-        val = val / 1000;
-      }
-    }
-    
-    if (isNaN(val) || val <= 0) {
-      addMessage("Please enter a valid distance", "error");
+    var val = parseDistanceInput(customDistance);
+    if (val === null) {
+      addMessage("Please enter a valid distance with unit (e.g. 500m or 1.5km)", "error");
       return;
     }
-    
     setMaxDistance(val);
+    setCustomDistance("");
   }
 
   function handleCustomDistanceKeyPress(e) {
     if (e.key === "Enter") {
       handleCustomDistanceApply();
+    }
+  }
+
+  // Range mode handlers
+  function handleMinPreset(value) {
+    if (value >= maxRangeDistance) {
+      addMessage("Min distance must be less than max distance", "error");
+      return;
+    }
+    setMinDistance(value);
+    setCustomMinDistance("");
+  }
+
+  function handleMaxRangePreset(value) {
+    if (value <= minDistance) {
+      addMessage("Max distance must be greater than min distance", "error");
+      return;
+    }
+    setMaxRangeDistance(value);
+    setCustomMaxDistance("");
+  }
+
+  function handleCustomMinChange(e) {
+    setCustomMinDistance(e.target.value);
+  }
+
+  function handleCustomMaxChange(e) {
+    setCustomMaxDistance(e.target.value);
+  }
+
+  function handleCustomRangeApply() {
+    var minVal = customMinDistance ? parseDistanceInput(customMinDistance) : null;
+    var maxVal = customMaxDistance ? parseDistanceInput(customMaxDistance) : null;
+    
+    // If neither field has input, nothing to apply
+    if (minVal === null && maxVal === null) {
+      addMessage("Please enter at least one distance with unit (e.g. 0m, 500m, or 1.5km)", "error");
+      return;
+    }
+    
+    // Use current values if custom field is empty
+    var newMin = minVal !== null ? minVal : minDistance;
+    var newMax = maxVal !== null ? maxVal : maxRangeDistance;
+    
+    if (newMin >= newMax) {
+      addMessage("Min distance must be less than max distance", "error");
+      return;
+    }
+    
+    setMinDistance(newMin);
+    setMaxRangeDistance(newMax);
+    setCustomMinDistance("");
+    setCustomMaxDistance("");
+  }
+
+  function handleCustomRangeKeyPress(e) {
+    if (e.key === "Enter") {
+      handleCustomRangeApply();
     }
   }
 
@@ -500,11 +604,13 @@ export default function RestaurantPicker() {
     return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(address || "");
   }
 
-  function formatDistance(km) {
-    if (km < 1) {
-      return Math.round(km * 1000) + "m";
+  // Render distance summary based on mode
+  function renderDistanceSummary() {
+    if (distanceMode === "radius") {
+      return "Max distance: " + formatDistance(maxDistance);
+    } else {
+      return "Distance: " + formatDistance(minDistance) + " - " + formatDistance(maxRangeDistance);
     }
-    return km + "km";
   }
 
   return (
@@ -523,7 +629,7 @@ export default function RestaurantPicker() {
 
       <main style={{ flex: 1, padding: "1rem", border: "1px solid #ccc" }}>
         <h1 style={{ cursor: "pointer" }} onClick={handleTitleClick}>
-          Redeploy Restaurant Chooser
+          Redeploy Restaurant Picker
           {adminToken && <span style={{ fontSize: "0.7rem", color: "#888", marginLeft: "0.5rem" }}>(admin)</span>}
         </h1>
 
@@ -605,49 +711,172 @@ export default function RestaurantPicker() {
         <section style={{ marginBottom: "2rem" }}>
           <h2>Find a Restaurant</h2>
           
-          <div style={{ marginBottom: "0.75rem" }}>
-            <span style={{ fontSize: "0.9rem", color: "#555", marginRight: "0.5rem" }}>Max distance:</span>
-            <strong>{formatDistance(maxDistance)}</strong>
-          </div>
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
-            {DISTANCE_PRESETS.map(function(preset) {
-              var isSelected = maxDistance === preset.value;
-              return (
-                <button
-                  key={preset.value}
-                  onClick={function() { handleDistancePreset(preset.value); }}
-                  style={{
-                    padding: "0.4rem 0.75rem",
-                    background: isSelected ? "#007bff" : "#f0f0f0",
-                    color: isSelected ? "white" : "#333",
-                    border: "1px solid " + (isSelected ? "#007bff" : "#ccc"),
-                    borderRadius: 4,
-                    cursor: "pointer"
-                  }}
-                >
-                  {preset.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-            <input
-              type="text"
-              placeholder="e.g. 350m or 1.5km"
-              value={customDistance}
-              onChange={handleCustomDistanceChange}
-              onKeyPress={handleCustomDistanceKeyPress}
-              style={{ padding: "0.4rem", width: "130px", boxSizing: "border-box" }}
-            />
+          {/* Distance mode toggle */}
+          <div style={{ marginBottom: "1rem" }}>
+            <span style={{ fontSize: "0.9rem", color: "#555", marginRight: "0.75rem" }}>Distance mode:</span>
             <button
-              onClick={handleCustomDistanceApply}
-              style={{ padding: "0.4rem 0.75rem" }}
+              onClick={function() { setDistanceMode("radius"); }}
+              style={{
+                padding: "0.4rem 0.75rem",
+                marginRight: "0.5rem",
+                background: distanceMode === "radius" ? "#007bff" : "#f0f0f0",
+                color: distanceMode === "radius" ? "white" : "#333",
+                border: "1px solid " + (distanceMode === "radius" ? "#007bff" : "#ccc"),
+                borderRadius: 4,
+                cursor: "pointer"
+              }}
             >
-              Apply
+              Radius
+            </button>
+            <button
+              onClick={function() { setDistanceMode("range"); }}
+              style={{
+                padding: "0.4rem 0.75rem",
+                background: distanceMode === "range" ? "#007bff" : "#f0f0f0",
+                color: distanceMode === "range" ? "white" : "#333",
+                border: "1px solid " + (distanceMode === "range" ? "#007bff" : "#ccc"),
+                borderRadius: 4,
+                cursor: "pointer"
+              }}
+            >
+              Range
             </button>
           </div>
+
+          {/* Distance summary */}
+          <div style={{ marginBottom: "0.75rem" }}>
+            <strong>{renderDistanceSummary()}</strong>
+          </div>
+
+          {/* Radius mode UI */}
+          {distanceMode === "radius" && (
+            <div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                {DISTANCE_PRESETS.map(function(preset) {
+                  var isSelected = maxDistance === preset.value;
+                  return (
+                    <button
+                      key={preset.value}
+                      onClick={function() { handleRadiusPreset(preset.value); }}
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        background: isSelected ? "#007bff" : "#f0f0f0",
+                        color: isSelected ? "white" : "#333",
+                        border: "1px solid " + (isSelected ? "#007bff" : "#ccc"),
+                        borderRadius: 4,
+                        cursor: "pointer"
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <span style={{ fontSize: "0.9rem", color: "#555" }}>Custom:</span>
+                <input
+                  type="text"
+                  placeholder="e.g. 350m or 1.5km"
+                  value={customDistance}
+                  onChange={handleCustomDistanceChange}
+                  onKeyPress={handleCustomDistanceKeyPress}
+                  style={{ padding: "0.4rem", width: "140px", boxSizing: "border-box" }}
+                />
+                <button
+                  onClick={handleCustomDistanceApply}
+                  style={{ padding: "0.4rem 0.75rem" }}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Range mode UI */}
+          {distanceMode === "range" && (
+            <div>
+              {/* From presets */}
+              <div style={{ marginBottom: "0.75rem" }}>
+                <span style={{ fontSize: "0.9rem", color: "#555", marginRight: "0.5rem" }}>From:</span>
+                <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  {RANGE_FROM_PRESETS.map(function(preset) {
+                    var isSelected = minDistance === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        onClick={function() { handleMinPreset(preset.value); }}
+                        style={{
+                          padding: "0.4rem 0.75rem",
+                          background: isSelected ? "#28a745" : "#f0f0f0",
+                          color: isSelected ? "white" : "#333",
+                          border: "1px solid " + (isSelected ? "#28a745" : "#ccc"),
+                          borderRadius: 4,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* To presets */}
+              <div style={{ marginBottom: "0.75rem" }}>
+                <span style={{ fontSize: "0.9rem", color: "#555", marginRight: "0.75rem" }}>To:</span>
+                <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  {DISTANCE_PRESETS.map(function(preset) {
+                    var isSelected = maxRangeDistance === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        onClick={function() { handleMaxRangePreset(preset.value); }}
+                        style={{
+                          padding: "0.4rem 0.75rem",
+                          background: isSelected ? "#dc3545" : "#f0f0f0",
+                          color: isSelected ? "white" : "#333",
+                          border: "1px solid " + (isSelected ? "#dc3545" : "#ccc"),
+                          borderRadius: 4,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom range inputs */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.9rem", color: "#555" }}>Custom:</span>
+                <input
+                  type="text"
+                  placeholder="e.g. 0m or 800m"
+                  value={customMinDistance}
+                  onChange={handleCustomMinChange}
+                  onKeyPress={handleCustomRangeKeyPress}
+                  style={{ padding: "0.4rem", width: "110px", boxSizing: "border-box" }}
+                />
+                <span style={{ fontSize: "0.9rem", color: "#555" }}>to</span>
+                <input
+                  type="text"
+                  placeholder="e.g. 2km or 500m"
+                  value={customMaxDistance}
+                  onChange={handleCustomMaxChange}
+                  onKeyPress={handleCustomRangeKeyPress}
+                  style={{ padding: "0.4rem", width: "110px", boxSizing: "border-box" }}
+                />
+                <button
+                  onClick={handleCustomRangeApply}
+                  style={{ padding: "0.4rem 0.75rem" }}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
 
           <p style={{ margin: 0, fontSize: ".9rem", color: "#555" }}>
             Current base: {currentBase}
