@@ -516,8 +516,8 @@ export default function RestaurantPicker() {
 
   // Range mode handlers
   function handleMinPreset(value) {
-    if (value >= maxRangeDistance) {
-      addMessage("Min distance must be less than max distance", "error");
+    if (value > maxRangeDistance) {
+      addMessage("Min distance cannot be greater than max distance", "error");
       return;
     }
     setMinDistance(value);
@@ -525,8 +525,8 @@ export default function RestaurantPicker() {
   }
 
   function handleMaxRangePreset(value) {
-    if (value <= minDistance) {
-      addMessage("Max distance must be greater than min distance", "error");
+    if (value < minDistance) {
+      addMessage("Max distance cannot be less than min distance", "error");
       return;
     }
     setMaxRangeDistance(value);
@@ -555,8 +555,8 @@ export default function RestaurantPicker() {
     var newMin = minVal !== null ? minVal : minDistance;
     var newMax = maxVal !== null ? maxVal : maxRangeDistance;
     
-    if (newMin >= newMax) {
-      addMessage("Min distance must be less than max distance", "error");
+    if (newMin > newMax) {
+      addMessage("Min distance cannot be greater than max distance", "error");
       return;
     }
     
