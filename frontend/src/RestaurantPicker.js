@@ -114,7 +114,7 @@ export default function RestaurantPicker() {
   
   // Range mode state
   const [minDistance, setMinDistance] = useState(0.3);
-  const [maxRangeDistance, setMaxRangeDistance] = useState(2);
+  const [maxRangeDistance, setMaxRangeDistance] = useState(0.5);
   const [customMinDistance, setCustomMinDistance] = useState("");
   const [customMaxDistance, setCustomMaxDistance] = useState("");
 
