@@ -1,0 +1,42 @@
+{
+  "name": "restaurant-picker-redeploy",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "features": {
+    "ghcr.io/devcontainers/features/azure-cli:1": {
+      "version": "2.67.0"
+    },
+    "ghcr.io/devcontainers/features/terraform:1": {
+      "version": "1.9.8",
+      "tflint": "0.53.0",
+      "terragrunt": "none",
+      "installTFsec": false,
+      "installTerraformDocs": true
+    }
+  },
+  "mounts": [
+    "source=tf-plugin-cache,target=/home/vscode/.terraform.d/plugin-cache,type=volume"
+  ],
+  "containerEnv": {
+    "TF_PLUGIN_CACHE_DIR": "/home/vscode/.terraform.d/plugin-cache"
+  },
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.terraform.d && mkdir -p /home/vscode/.terraform.d/plugin-cache && sudo apt-get update && sudo apt-get install -y make jq unzip software-properties-common && curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null && sudo apt-add-repository -y https://packages.microsoft.com/ubuntu/22.04/prod && sudo apt-get install -y aztfexport && make --version && aztfexport --version",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "hashicorp.terraform",
+        "ms-azuretools.vscode-azureresourcegroups",
+        "ms-vscode.makefile-tools"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "[terraform]": {
+          "editor.defaultFormatter": "hashicorp.terraform"
+        },
+        "[terraform-vars]": {
+          "editor.defaultFormatter": "hashicorp.terraform"
+        }
+      }
+    }
+  }
+}

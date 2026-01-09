@@ -1,0 +1,20 @@
+# .dockerignore
+.git
+.gitignore
+.github/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.dist/
+build/
+frontend/node_modules/
+frontend/.cache/
+frontend/build/
+.env
+.env.*
+Dockerfile
+docker-compose.yml
+all_code.txt
+marimo/
