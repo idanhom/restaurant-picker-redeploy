@@ -1,84 +1,110 @@
-# create app myself and test for a while to ensure it works well. then open to public?
-# https://console.cloud.google.com/billing/0147C5-9F78FB-C1A42B/reports;timeRange=YEAR_TO_DATE;grouping=GROUP_BY_SKU;projects=gen-lang-client-0700994690?project=gen-lang-client-0700994690
+# Redeploy Restaurant Picker
 
-# also set restrictions to my endpoint??
-# https://console.cloud.google.com/apis/credentials/key/1ca2b0d8-aad0-4b31-adc1-a5f47834b6b9?project=gen-lang-client-0700994690
+A community-driven restaurant discovery app for Redeploy offices. Search, submit, vote on, and randomly pick lunch spots — all within a ~50 km radius of your office.
 
-### Project Overview: Restaurant Discovery and Voting Application *(July 2025 edition)*
+**Live:** [Redeploy Restaurant Picker](https://orange-dune-0d7cdfc03.2.azurestaticapps.net) 
+## What It Does
 
-#### High-Level Abstraction
+- **Search** — Type a restaurant name, get live suggestions from Google Places filtered by distance
+- **Submit** — Add new restaurants; AI auto-classifies the cuisine type
+- **Vote** — Upvote or downvote suggestions; +3 net votes promotes a restaurant to the main pool
+- **Randomize** — Pick a random promoted restaurant within your chosen distance range
+- **Wall of Shame** — Restaurants with too many downvotes get moved here
 
-This web application lets Gothenburg residents **search, submit, vote on, and randomly pick restaurants** while keeping all data local to a \~50 km radius around the city centre. Users type a name, the backend validates and enriches it through Google Maps and Azure OpenAI, then stores every submission immediately. Community voting (net +3 up-votes) promotes a place from “limbo” to the main list, making it eligible for the random-picker. A React frontend handles all interactions; a FastAPI backend manages enrichment, storage, and rate-limited access to third-party APIs. Caching with Redis minimises duplicate external calls, and everything runs in Docker for painless local dev and cloud deployment.
+Supports three office locations: Gothenburg, Jönköping, and Stockholm.
 
-The goal: **collaborative, real-time lunch decisions with zero redundant API hits** and full traceability of every suggestion, even those that never get traction.
+## Architecture
 
----
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   React     │────▶│   FastAPI   │────▶│ PostgreSQL  │
+│  Frontend   │     │   Backend   │     │     17      │
+└─────────────┘     └──────┬──────┘     └─────────────┘
+                          │
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+         ┌────────┐ ┌──────────┐ ┌─────────┐
+         │ Redis  │ │  Google  │ │  Azure  │
+         │ Cache  │ │  Places  │ │ OpenAI  │
+         └────────┘ └──────────┘ └─────────┘
+```
 
-#### Important Details
+| Component | Tech | Purpose |
+|-----------|------|---------|
+| Frontend | React 18 | SPA hosted on Azure Static Web Apps |
+| Backend | FastAPI + Uvicorn | REST API with auto-generated docs at `/docs` |
+| Database | PostgreSQL 17 | Stores restaurants, votes, comments |
+| Cache | Redis 7 | Caches API responses (TTL 1 hour) |
+| Enrichment | Google Places API | Restaurant search and distance calculation |
+| AI | Azure OpenAI | Cuisine classification |
 
-The system is split into a React frontend, a FastAPI backend, a PostgreSQL 17 database, and several external services for enrichment.
+## Deployment
 
-* **Frontend (User Interface)**
-  Built with React 18. The main component (`RestaurantPicker.js`) lets users
+This project uses **push-to-deploy** via GitHub Actions.
 
-  * search live via the new **`/api/search-restaurants`** endpoint,
-  * submit a selected result,
-  * up-vote suggestions, and
-  * request a random promoted restaurant.
-    Toast-style messages show success, warnings, or errors. Votes are tracked in-session to avoid double-voting and can be migrated to real user accounts later. The UI is 100 % client-side and can be hosted anywhere (e.g. Azure Static Web Apps).
+### How It Works
 
-* **Backend (API Layer)**
-  Written in FastAPI 0.116 and documented automatically at `/docs`. Key routes:
+- **Frontend:** Push to `main` → automatically deploys to Azure Static Web Apps
+- **Backend:** Changes to `app/`, `requirements.txt`, or `Dockerfile` → rebuilds container and deploys to Azure Container Apps
 
-  | Method   | Path                              | Purpose                                                     |
-  | -------- | --------------------------------- | ----------------------------------------------------------- |
-  | **GET**  | `/api/search-restaurants?query=…` | Google Text Search + Distance Matrix (5 nearest hits).      |
-  | **POST** | `/api/submit-restaurant`          | Persist selection, add first up-vote, classify cuisine.     |
-  | **POST** | `/api/vote-restaurant/{id}`       | Increment up-votes; promotion triggers at +3.               |
-  | **GET**  | `/api/suggestions`                | All non-promoted entries with vote counts.                  |
-  | **POST** | `/api/random-restaurant`          | Return a random promoted spot (name, cuisine, km, address). |
-  | **GET**  | `/api/top-cuisines`               | Three most frequent cuisine tags.                           |
-  | **GET**  | `/api/cuisine-tags`               | Full histogram for sidebar tag cloud.                       |
+Infrastructure is managed with Terraform in the `terraform/` directory.
 
-  *Caching* (via Redis, default **TTL 3600 s**) guards repeat Google/OpenAI calls.
-  *Rate limiting* (SlowAPI, default **5 requests/min/IP**) protects quotas.
-  Errors follow standard HTTP status codes with JSON details.
+### Required Secrets (GitHub Actions)
 
-* **Database** (PostgreSQL 17)
-  Table **`restaurants`** stores: `google_id`, `name`, `address`, `lat`, `lng`, `distance_from_office (km)`, `cuisine`, raw Google JSON, `up_votes`, `down_votes`, `promoted`, and timestamps. SQLAlchemy 2.0 handles ORM mapping; tables auto-create at startup in dev.
+The following secrets must be configured in the GitHub repository:
 
-* **External APIs & Enrichment**
+- `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` — Azure OIDC auth
+- `AZURE_STATIC_WEB_APPS_API_TOKEN_ORANGE_DUNE_0D7CDFC03` — Static Web Apps deployment
 
-  * **Google Places API (v1)** – text search restricted to a 50 km bias circle centred on the office.
-  * **Google Distance Matrix** – batched driving-distance lookup for each candidate (km).
-  * **Azure OpenAI GPT-4.1-nano** – single-shot prompt returns a 1-3-word cuisine label.
-    All calls first check Redis; failures fall back gracefully (e.g., cuisine `"Unknown"`).
+Backend environment variables are configured in Terraform (`terraform/container_app.tf`).
 
-* **Containerisation & Deployment**
-  *Docker Compose* spins up PostgreSQL, Redis, and the API locally with one command.
-  The API image (Python 3.12-slim) is built by the included **Dockerfile** and is ready for **Azure Container Apps**; push to Azure Container Registry and deploy with external ingress. Environment variables come from `.env` (never commit real keys).
+## API Overview
 
-* **Workflow Overview**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/offices` | List available office locations |
+| GET | `/api/search-restaurants?query=...` | Search restaurants near office |
+| POST | `/api/submit-restaurant` | Submit a new restaurant |
+| POST | `/api/vote-restaurant/{id}` | Vote on a suggestion |
+| GET | `/api/suggestions` | List non-promoted restaurants |
+| POST | `/api/random-restaurant` | Get a random promoted restaurant |
+| GET | `/api/cuisine-tags` | Get cuisine type counts |
+| GET | `/api/wall-of-shame` | List shamed restaurants |
 
-  1. **Search** – Autocomplete hits `/api/search-restaurants`; results show name, address, km.
-  2. **Submit** – Selected item -> `/api/submit-restaurant`; stored + first up-vote, cuisine tagged.
-  3. **Vote** – Users up-vote via `/api/vote-restaurant/{id}`; at net +3 the row is flagged `promoted=true`.
-  4. **Random Pick** – `/api/random-restaurant` returns a random promoted record.
-     All steps are cached and rate-limited.
+Full API documentation available at `/docs` on the deployed backend.
 
----
+## Contributing
 
-#### Technologies Used
+### Pull Request Workflow
 
-| Tier             | Stack                                                      | Reason                                    |
-| ---------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| **Backend**      | FastAPI + Uvicorn                                          | Async performance, auto OpenAPI docs.     |
-| **Database**     | PostgreSQL 17 + SQLAlchemy 2.0                             | Strong relational model, ORM convenience. |
-| **Cache / Rate** | Redis 7 (TTL) / SlowAPI                                    | API-quota safety & latency savings.       |
-| **Enrichment**   | Google Places & Distance Matrix, Azure OpenAI GPT-4.1-nano | Accurate local data, low-cost AI tagging. |
-| **Containers**   | Docker Compose / Azure Container Apps                      | One-command dev, effortless scaling.      |
-| **Frontend**     | React 18 (CRA)                                             | Fast client-side UX, easy hosting.        |
+1. Fork the repository
+2. Create a feature branch: `git switch -c feature/your-feature`
+3. Make your changes
+4. Push and open a PR against `main`
+5. Once merged, changes deploy automatically
 
----
+### Areas for Contribution
 
-This 2025 iteration delivers a **community-driven, AI-augmented restaurant platform** that stays fast, frugal, and focused on Gothenburg cuisine from the very first keystroke.
+- **UI/UX improvements** — The frontend could use polish
+- **New features** — Filtering by cuisine, user accounts, favorites
+- **Bug fixes** — Check the issues tab
+- **Documentation** — Always welcome
+
+## Project Structure
+
+```
+├── app/                    # FastAPI backend
+│   ├── api/endpoints.py    # All API routes
+│   ├── crud.py             # Database operations
+│   ├── models.py           # SQLAlchemy models
+│   └── schemas.py          # Pydantic schemas
+├── frontend/               # React frontend
+│   └── src/
+│       ├── RestaurantPicker.js   # Main component
+│       ├── AutocompleteInput.js  # Search input
+│       ├── RestaurantModal.js    # Restaurant details
+│       └── AdminConsole.js       # Admin panel
+├── terraform/              # Infrastructure as code
+├── .github/workflows/      # CI/CD pipelines
+└── Dockerfile              # Backend container
+```
