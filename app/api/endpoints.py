@@ -392,10 +392,10 @@ async def vote_restaurant(
         raise HTTPException(status.HTTP_409_CONFLICT, detail="You have already voted on this restaurant.")
 
     updated = crud.update_votes(db, restaurant, up=up)
-    crud.register_vote(db, restaurant.id, client_id)
     if updated is None:
         await redis_client.delete(f"submit:{restaurant.google_id}")
         return {"message": "Voted and restaurant removed", "success": True}
+    crud.register_vote(db, restaurant.id, client_id)
     return {"message": "Voted", "success": True}
 
 

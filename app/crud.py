@@ -77,6 +77,10 @@ def update_votes(db: Session, restaurant: Restaurant, up: bool):
     
     # Check for shame using freshly fetched values
     if not up and restaurant.down_votes >= 3:
+        # Delete dependent votes first for existing DBs that may not have FK cascade enabled.
+        db.query(Vote).filter(Vote.restaurant_id == restaurant_id).delete(
+            synchronize_session=False
+        )
         # Move to shame
         shame = ShameRestaurant(
             google_id=restaurant.google_id,
