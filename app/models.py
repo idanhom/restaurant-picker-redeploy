@@ -37,7 +37,11 @@ class Vote(Base):
     """
     __tablename__ = "votes"
     id = Column(Integer, primary_key=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    restaurant_id = Column(
+        Integer,
+        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     client_uuid = Column(String, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
