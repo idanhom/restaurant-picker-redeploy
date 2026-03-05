@@ -239,6 +239,8 @@ async def submit_restaurant(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Please provide a valid Google Place ID.")
     if not office_name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Please select an office location.")
+    if office_name not in OFFICES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid office location.")
 
     cache_key = f"submit:{google_id}"
     if cached := await get_cache(cache_key):
@@ -263,8 +265,8 @@ async def submit_restaurant(
     lat = place["location"]["latitude"]
     lng = place["location"]["longitude"]
 
-    origin_lat = user_lat if user_lat is not None else OFFICES[DEFAULT_OFFICE]["lat"]
-    origin_lng = user_lng if user_lng is not None else OFFICES[DEFAULT_OFFICE]["lng"]
+    origin_lat = user_lat if user_lat is not None else OFFICES[office_name]["lat"]
+    origin_lng = user_lng if user_lng is not None else OFFICES[office_name]["lng"]
     km = _drive_distance_km(lat, lng, origin_lat, origin_lng)
     if km > MAX_DISTANCE_KM:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"The selected restaurant is too far from the office (more than {MAX_DISTANCE_KM} km).")
