@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import secrets
 from typing import List, cast
 
 import requests
@@ -66,6 +67,25 @@ azure_client = AzureOpenAI(
 )
 
 # ─────────────────────────── Helpers ────────────────────────────────
+def _is_admin_token_valid(request: Request) -> bool:
+    if not ADMIN_TOKEN:
+        return False
+    admin_token = request.headers.get("X-Admin-Token")
+    if not admin_token:
+        return False
+    return secrets.compare_digest(admin_token, ADMIN_TOKEN)
+
+
+def _require_admin(request: Request) -> None:
+    if not ADMIN_TOKEN:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin features are disabled on this deployment.",
+        )
+    if not _is_admin_token_valid(request):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+
+
 def _google_text_search(query: str, origin_lat: float, origin_lng: float) -> List[dict]:
     url = "https://places.googleapis.com/v1/places:searchText"
     headers = {
@@ -358,9 +378,7 @@ async def vote_restaurant(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Restaurant not found.")
 
     client_id = request.headers.get("X-Client-ID")
-    admin_token = request.headers.get("X-Admin-Token")
-
-    if admin_token == ADMIN_TOKEN:
+    if _is_admin_token_valid(request):
         updated = crud.update_votes(db, restaurant, up=up)
         if updated is None:
             await redis_client.delete(f"submit:{restaurant.google_id}")
@@ -482,9 +500,7 @@ def get_restaurant_counts(db: Session = Depends(get_db)) -> List[dict]:
 async def delete_shame_restaurant(
     request: Request, id: int, db: Session = Depends(get_db)
 ):
-    admin_token = request.headers.get("X-Admin-Token")
-    if admin_token != ADMIN_TOKEN:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    _require_admin(request)
 
     shame_restaurant = db.query(ShameRestaurant).filter_by(id=id).first()
     if not shame_restaurant:
@@ -597,9 +613,7 @@ async def admin_get_restaurants(
     office_name: str | None = Query(None),
     promoted: bool | None = Query(None),
 ):
-    admin_token = request.headers.get("X-Admin-Token")
-    if admin_token != ADMIN_TOKEN:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    _require_admin(request)
 
     query = db.query(DBRestaurant)
     if office_name:
@@ -618,9 +632,7 @@ async def admin_update_restaurant(
     data: dict,
     db: Session = Depends(get_db),
 ):
-    admin_token = request.headers.get("X-Admin-Token")
-    if admin_token != ADMIN_TOKEN:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    _require_admin(request)
 
     restaurant = db.query(DBRestaurant).filter_by(id=id).first()
     if not restaurant:
@@ -646,9 +658,7 @@ async def admin_delete_restaurant(
     id: int,
     db: Session = Depends(get_db),
 ):
-    admin_token = request.headers.get("X-Admin-Token")
-    if admin_token != ADMIN_TOKEN:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    _require_admin(request)
 
     restaurant = db.query(DBRestaurant).filter_by(id=id).first()
     if not restaurant:
@@ -666,9 +676,7 @@ async def admin_delete_comment(
     id: int,
     db: Session = Depends(get_db),
 ):
-    admin_token = request.headers.get("X-Admin-Token")
-    if admin_token != ADMIN_TOKEN:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    _require_admin(request)
 
     comment = db.query(DBComment).filter_by(id=id).first()
     if not comment:

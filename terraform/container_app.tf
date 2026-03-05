@@ -27,7 +27,7 @@ resource "azurerm_container_app" "main" {
   }
   template {
     max_replicas = 2
-    min_replicas = 1
+    min_replicas = 0
     container {
       cpu    = 0.5
       image  = "${azurerm_container_registry.main.login_server}/restaurantpicker:${var.container_image_tag}" #"restaurantpickeracr.azurecr.io/restaurantpicker:5549584bfb16da0fc436dc2378d0de27be4bcc3a"
@@ -76,7 +76,7 @@ resource "azurerm_container_app" "main" {
     }
   }
   lifecycle {
-    ignore_changes = [ template[0].container[0].image ]
+    ignore_changes = [template[0].container[0].image]
   }
 }
 resource "azurerm_container_app_environment" "main" {
