@@ -16,9 +16,12 @@ def has_voted(db: Session, restaurant_id: int, client_uuid: str) -> bool:
     )
 
 
-def register_vote(db: Session, restaurant_id: int, client_uuid: str):
+def register_vote(
+    db: Session, restaurant_id: int, client_uuid: str, commit: bool = True
+):
     db.add(Vote(restaurant_id=restaurant_id, client_uuid=client_uuid))
-    db.commit()
+    if commit:
+        db.commit()
 
 
 # ─────────────────────── Restaurant CRUD ───────────────────────

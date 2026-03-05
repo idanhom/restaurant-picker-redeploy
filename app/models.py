@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Boolean,
     ForeignKey,
+    UniqueConstraint,
 )
 from datetime import datetime
 from app.db.session import Base
@@ -36,6 +37,13 @@ class Vote(Base):
     One row per restaurant-and-client UUID.
     """
     __tablename__ = "votes"
+    __table_args__ = (
+        UniqueConstraint(
+            "restaurant_id",
+            "client_uuid",
+            name="uq_votes_restaurant_client",
+        ),
+    )
     id = Column(Integer, primary_key=True)
     restaurant_id = Column(
         Integer,
@@ -70,6 +78,13 @@ class Comment(Base):
 
 class CommentVote(Base):
     __tablename__ = "comment_votes"
+    __table_args__ = (
+        UniqueConstraint(
+            "comment_id",
+            "client_uuid",
+            name="uq_comment_votes_comment_client",
+        ),
+    )
     id = Column(Integer, primary_key=True)
     comment_id = Column(Integer, ForeignKey("comments.id"), nullable=False)
     client_uuid = Column(String, index=True, nullable=False)

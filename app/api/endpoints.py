@@ -10,12 +10,13 @@ import random
 import secrets
 from typing import List, cast
 
-import requests
+import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
-from openai import AzureOpenAI
+from openai import AsyncAzureOpenAI
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 import app.crud as crud
 from app.db.session import get_db
@@ -60,7 +61,7 @@ MAX_DISTANCE_KM = GOTHENBURG_RADIUS / 1000
 router = APIRouter(prefix="/api")
 RATE_LIMIT = os.environ.get("RATE_LIMIT", "5/minute")
 
-azure_client = AzureOpenAI(
+azure_client = AsyncAzureOpenAI(
     azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
     api_key=os.environ["AZURE_OPENAI_API_KEY"],
     api_version="2025-01-01-preview",
@@ -86,7 +87,7 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required.")
 
 
-def _google_text_search(query: str, origin_lat: float, origin_lng: float) -> List[dict]:
+async def _google_text_search(query: str, origin_lat: float, origin_lng: float) -> List[dict]:
     url = "https://places.googleapis.com/v1/places:searchText"
     headers = {
         "Content-Type": "application/json",
@@ -107,18 +108,28 @@ def _google_text_search(query: str, origin_lat: float, origin_lng: float) -> Lis
         "includedType": "restaurant",
         "rankPreference": "DISTANCE",
     }
-    res = requests.post(url, json=body, headers=headers, timeout=10)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.post(url, json=body, headers=headers)
+    except httpx.RequestError:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Error searching restaurants via Google Places.",
+        )
     if res.status_code != 200:
-        detail = res.json().get("error", "Google Places API error")
+        try:
+            detail = res.json().get("error", "Google Places API error")
+        except Exception:
+            detail = "Google Places API error"
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Error searching restaurants via Google Places: {detail}")
     return res.json().get("places", [])
 
-def _drive_distance_km(
+async def _drive_distance_km(
     dest_lat: float,
     dest_lng: float,
     origin_lat: float,
     origin_lng: float,
-) -> float:
+) -> float | None:
     url = "https://maps.googleapis.com/maps/api/distancematrix/json"
     params = {
         "origins": f"{origin_lat},{origin_lng}",
@@ -126,18 +137,22 @@ def _drive_distance_km(
         "mode": "driving",
         "key": _GOOGLE_KEY,
     }
-    res = requests.get(url, params=params, timeout=10)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(url, params=params)
+    except httpx.RequestError:
+        return None
     if res.status_code != 200:
-        return 0.0
+        return None
     data = res.json()
     if data.get("status") != "OK" or not data.get("rows"):
-        return 0.0
+        return None
     element = data["rows"][0]["elements"][0]
     if element.get("status") != "OK":
-        return 0.0
+        return None
     return element["distance"]["value"] / 1000
 
-def _classify_cuisine(name: str) -> str:
+async def _classify_cuisine(name: str) -> str:
     prompt = (
         "Classify the primary type of food or cuisine served at the restaurant based on its name. "
         "Be as specific as possible, e.g., 'Pizza' for a pizza place instead of 'Italian', "
@@ -146,7 +161,7 @@ def _classify_cuisine(name: str) -> str:
         f"Restaurant: {name}"
     )
     try:
-        resp = azure_client.chat.completions.create(
+        resp = await azure_client.chat.completions.create(
             model=_AZURE_OPENAI_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -172,9 +187,9 @@ async def search_restaurants(
     origin_lat = user_lat if user_lat is not None else OFFICES[DEFAULT_OFFICE]["lat"]
     origin_lng = user_lng if user_lng is not None else OFFICES[DEFAULT_OFFICE]["lng"]
 
-    places = _google_text_search(query, origin_lat, origin_lng)
+    places = await _google_text_search(query, origin_lat, origin_lng)
 
-    results, destinations, place_map = [], [], {}
+    results, place_candidates = [], []
     for p in places[:5]:
         pid = p.get("id")
         if not pid or "restaurant" not in p.get("types", []):
@@ -184,44 +199,33 @@ async def search_restaurants(
         if crud.get_shame_by_google_id(db, pid):
             continue
         lat, lng = p["location"]["latitude"], p["location"]["longitude"]
-        destinations.append(f"{lat},{lng}")
-        place_map[len(destinations) - 1] = {
-            "google_id": pid,
-            "name": p["displayName"]["text"],
-            "address": p.get("formattedAddress"),
-        }
+        place_candidates.append(
+            {
+                "google_id": pid,
+                "name": p["displayName"]["text"],
+                "address": p.get("formattedAddress"),
+                "lat": lat,
+                "lng": lng,
+            }
+        )
 
-    if destinations:
-        dm_url = "https://maps.googleapis.com/maps/api/distancematrix/json"
-        params = {
-            "origins": f"{origin_lat},{origin_lng}",
-            "destinations": "|".join(destinations),
-            "mode": "driving",
-            "key": _GOOGLE_KEY,
-        }
-        dm_res = requests.get(dm_url, params=params, timeout=10)
-        if dm_res.status_code == 200 and dm_res.json().get("status") == "OK":
-            rows = dm_res.json()["rows"][0]["elements"]
-            for i, element in enumerate(rows):
-                if element.get("status") == "OK":
-                    km = element["distance"]["value"] / 1000
-                    if km > MAX_DISTANCE_KM:
-                        continue
-                    place = place_map[i]
-                    results.append(
-                        {
-                            "google_id": place["google_id"],
-                            "name": place["name"],
-                            "address": place["address"],
-                            "distance": km,
-                        }
-                    )
-
-    if not results:
-        for i in place_map:
-            km = 0.0
-            if km <= MAX_DISTANCE_KM:
-                results.append({**place_map[i], "distance": km})
+    for place in place_candidates:
+        km = await _drive_distance_km(
+            place["lat"],
+            place["lng"],
+            origin_lat,
+            origin_lng,
+        )
+        if km is None or km > MAX_DISTANCE_KM:
+            continue
+        results.append(
+            {
+                "google_id": place["google_id"],
+                "name": place["name"],
+                "address": place["address"],
+                "distance": km,
+            }
+        )
 
     return results
 
@@ -251,9 +255,19 @@ async def submit_restaurant(
         "X-Goog-Api-Key": _GOOGLE_KEY,
         "X-Goog-FieldMask": "id,displayName,formattedAddress,location",
     }
-    res = requests.get(url, headers=headers, timeout=10)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(url, headers=headers)
+    except httpx.RequestError:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Error fetching restaurant details from Google Places.",
+        )
     if res.status_code != 200:
-        detail = res.json().get("error", "Google Places API error")
+        try:
+            detail = res.json().get("error", "Google Places API error")
+        except Exception:
+            detail = "Google Places API error"
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Error fetching restaurant details from Google Places: {detail}")
     place = res.json()
 
@@ -267,7 +281,12 @@ async def submit_restaurant(
 
     origin_lat = user_lat if user_lat is not None else OFFICES[office_name]["lat"]
     origin_lng = user_lng if user_lng is not None else OFFICES[office_name]["lng"]
-    km = _drive_distance_km(lat, lng, origin_lat, origin_lng)
+    km = await _drive_distance_km(lat, lng, origin_lat, origin_lng)
+    if km is None:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Could not calculate driving distance for this restaurant.",
+        )
     if km > MAX_DISTANCE_KM:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"The selected restaurant is too far from the office (more than {MAX_DISTANCE_KM} km).")
 
@@ -278,7 +297,7 @@ async def submit_restaurant(
         lat=lat,
         lng=lng,
         distance_from_office=km,
-        cuisine=_classify_cuisine(place["displayName"]["text"]),
+        cuisine=await _classify_cuisine(place["displayName"]["text"]),
         raw_input="",
         google_data=json.dumps(place),
         office_name=office_name,
@@ -323,8 +342,8 @@ async def random_restaurant(
     if user_lat is not None and user_lng is not None:
         candidates = []
         for r in promoted:
-            km = _drive_distance_km(r.lat, r.lng, user_lat, user_lng)
-            if filter_by_distance(km):
+            km = await _drive_distance_km(r.lat, r.lng, user_lat, user_lng)
+            if km is not None and filter_by_distance(km):
                 candidates.append((r, km))
         if not candidates:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No promoted restaurants within the specified range.")
@@ -340,8 +359,8 @@ async def random_restaurant(
         origin_lng = OFFICES[office_name]["lng"]
         candidates = []
         for r in promoted:
-            km = _drive_distance_km(r.lat, r.lng, origin_lat, origin_lng)
-            if filter_by_distance(km):
+            km = await _drive_distance_km(r.lat, r.lng, origin_lat, origin_lng)
+            if km is not None and filter_by_distance(km):
                 candidates.append((r, km))
         if not candidates:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No promoted restaurants within the specified range.")
@@ -390,20 +409,32 @@ async def vote_restaurant(
     if not client_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="X-Client-ID header is required for voting.")
 
-    if crud.has_voted(db, restaurant.id, client_id):
+    locked_restaurant = (
+        db.query(DBRestaurant)
+        .filter(DBRestaurant.id == restaurant.id)
+        .with_for_update()
+        .first()
+    )
+    if not locked_restaurant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Restaurant not found.")
+    if crud.has_voted(db, locked_restaurant.id, client_id):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="You have already voted on this restaurant.")
 
-    updated = crud.update_votes(db, restaurant, up=up)
+    try:
+        crud.register_vote(db, locked_restaurant.id, client_id, commit=False)
+        updated = crud.update_votes(db, locked_restaurant, up=up)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="You have already voted on this restaurant.")
     if updated is None:
-        await redis_client.delete(f"submit:{restaurant.google_id}")
+        await redis_client.delete(f"submit:{locked_restaurant.google_id}")
         return {"message": "Voted and restaurant removed", "success": True}
-    crud.register_vote(db, restaurant.id, client_id)
     return {"message": "Voted", "success": True}
 
 
 # ───────────────────── Suggestions & Analytics ─────────────────────
 @router.get("/suggestions")
-def get_suggestions(
+async def get_suggestions(
     db: Session = Depends(get_db),
     user_lat: float | None = Query(None),
     user_lng: float | None = Query(None),
@@ -417,8 +448,8 @@ def get_suggestions(
     if user_lat is not None and user_lng is not None:
         rows_with_km = []
         for r in rows:
-            km = _drive_distance_km(r.lat, r.lng, user_lat, user_lng)
-            if km > MAX_DISTANCE_KM:
+            km = await _drive_distance_km(r.lat, r.lng, user_lat, user_lng)
+            if km is None or km > MAX_DISTANCE_KM:
                 continue
             r.distance_from_office = km  # mutate for response
             rows_with_km.append(r)
@@ -428,8 +459,8 @@ def get_suggestions(
         origin_lng = OFFICES[office_name]["lng"]
         rows_with_km = []
         for r in rows:
-            km = _drive_distance_km(r.lat, r.lng, origin_lat, origin_lng)
-            if km > MAX_DISTANCE_KM:
+            km = await _drive_distance_km(r.lat, r.lng, origin_lat, origin_lng)
+            if km is None or km > MAX_DISTANCE_KM:
                 continue
             r.distance_from_office = km
             rows_with_km.append(r)
@@ -587,13 +618,22 @@ async def vote_comment(
     if not client_uuid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Client ID required.")
 
-    comment = db.query(DBComment).filter_by(id=id).first()
+    comment = (
+        db.query(DBComment)
+        .filter(DBComment.id == id)
+        .with_for_update()
+        .first()
+    )
     if not comment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Comment not found.")
-    
-    existing_vote = db.query(CommentVote).filter_by(comment_id=id, client_uuid=client_uuid).first()
+
+    existing_vote = (
+        db.query(CommentVote)
+        .filter_by(comment_id=id, client_uuid=client_uuid)
+        .first()
+    )
     if existing_vote:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Already voted on this comment.")
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Already voted on this comment.")
     
     up = data.get("up", True)
     if up:
@@ -603,7 +643,11 @@ async def vote_comment(
     
     vote = CommentVote(comment_id=id, client_uuid=client_uuid)
     db.add(vote)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Already voted on this comment.")
     
     return {"message": "Vote recorded", "success": True, "up_votes": comment.up_votes, "down_votes": comment.down_votes}
 
