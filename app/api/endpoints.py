@@ -152,21 +152,161 @@ async def _drive_distance_km(
         return None
     return element["distance"]["value"] / 1000
 
-async def _classify_cuisine(name: str) -> str:
-    prompt = (
-        "Classify the primary type of food or cuisine served at the restaurant based on its name. "
-        "Be as specific as possible, e.g., 'Pizza' for a pizza place instead of 'Italian', "
-        "'Burger' for a burger place instead of 'Fast Food'. "
-        "Respond with 1-3 words only, no quotes.\n\n"
-        f"Restaurant: {name}"
-    )
+def _normalize_cuisine_label(label: str) -> str:
+    cleaned = " ".join(label.strip().split())
+    if not cleaned:
+        return "Unknown"
+    words = []
+    for part in cleaned.split():
+        token = part.strip(".,;:!?\"'()[]{}")
+        if token:
+            words.append(token)
+    if not words:
+        return "Unknown"
+    return " ".join(words[:3])
+
+
+def _canonical_cuisine_key(label: str) -> str:
+    normalized_label = _normalize_cuisine_label(label).casefold()
+    normalized_label = normalized_label.replace("&", " and ")
+    normalized_label = " ".join(normalized_label.split())
+
+    phrase_map = {
+        "burger": "burger",
+        "burgers": "burger",
+        "hamburger": "burger",
+        "hamburgers": "burger",
+        "sandwich": "sandwich",
+        "sandwiches": "sandwich",
+        "middle east": "middle eastern",
+        "middle eastern": "middle eastern",
+        "middle-eastern": "middle eastern",
+        "ramen": "ramen",
+        "asian street food": "asian street food",
+        "street food asian": "asian street food",
+        "fish and chips": "fish chips",
+        "fish n chips": "fish chips",
+        "fish chips": "fish chips",
+    }
+    if normalized_label in phrase_map:
+        return phrase_map[normalized_label]
+
+    synonym_map = {
+        "hamburger": "burger",
+        "hamburgers": "burger",
+        "burgers": "burger",
+        "sandwiches": "sandwich",
+    }
+    tokens = normalized_label.split()
+    canonical_tokens: List[str] = []
+    for token in tokens:
+        mapped = synonym_map.get(token, token)
+        if mapped.endswith("ies") and len(mapped) > 3:
+            mapped = mapped[:-3] + "y"
+        elif mapped.endswith("es") and len(mapped) > 3:
+            mapped = mapped[:-2]
+        elif mapped.endswith("s") and len(mapped) > 3:
+            mapped = mapped[:-1]
+        canonical_tokens.append(mapped)
+    return " ".join(canonical_tokens[:3])
+
+
+def _get_existing_cuisines(db: Session, office_name: str | None) -> List[str]:
+    def _query_cuisines(for_office: str | None) -> List[str]:
+        query = (
+            db.query(DBRestaurant.cuisine, func.count(DBRestaurant.id).label("count"))
+            .filter(
+                DBRestaurant.cuisine.isnot(None),
+                DBRestaurant.cuisine != "Unknown",
+            )
+        )
+        if for_office is not None:
+            query = query.filter(DBRestaurant.office_name == for_office)
+        rows = (
+            query.group_by(DBRestaurant.cuisine)
+            .order_by(func.count(DBRestaurant.id).desc())
+            .limit(40)
+            .all()
+        )
+        return [c for c, _ in rows if c]
+
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for cuisine in _query_cuisines(office_name):
+        key = cuisine.casefold()
+        if key not in seen:
+            seen.add(key)
+            candidates.append(cuisine)
+    for cuisine in _query_cuisines(None):
+        key = cuisine.casefold()
+        if key not in seen:
+            seen.add(key)
+            candidates.append(cuisine)
+    return candidates[:60]
+
+
+async def _classify_cuisine(name: str, existing_cuisines: List[str] | None = None) -> str:
+    existing_cuisines = existing_cuisines or []
+    existing_map = {c.casefold(): c for c in existing_cuisines}
+    canonical_existing_map = {}
+    for cuisine in existing_cuisines:
+        canonical_existing_map.setdefault(_canonical_cuisine_key(cuisine), cuisine)
+
+    if existing_cuisines:
+        existing_list = "\n".join(f"- {c}" for c in existing_cuisines)
+        prompt = (
+            "Classify the primary type of food or cuisine served at the restaurant.\n"
+            "Prefer reusing an existing category when it reasonably fits.\n\n"
+            "Existing categories:\n"
+            f"{existing_list}\n\n"
+            "Output rules:\n"
+            "1) If an existing category fits, respond with that exact category text.\n"
+            "2) Otherwise respond as: NEW: <1-3 words>\n"
+            "3) Do not create singular/plural or obvious synonym variants of existing categories.\n"
+            "4) No extra text.\n\n"
+            "Example: if existing has 'Burgers', return 'Burgers' (not 'Hamburger').\n\n"
+            f"Restaurant: {name}"
+        )
+    else:
+        prompt = (
+            "Classify the primary type of food or cuisine served at the restaurant based on its name. "
+            "Be as specific as possible, e.g., 'Pizza' for a pizza place instead of 'Italian', "
+            "'Burger' for a burger place instead of 'Fast Food'. "
+            "Respond with 1-3 words only, no quotes.\n\n"
+            f"Restaurant: {name}"
+        )
+
     try:
         resp = await azure_client.chat.completions.create(
             model=_AZURE_OPENAI_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
         )
-        label = (resp.choices[0].message.content or "").strip()
-        return " ".join(label.split()[:3]) or "Unknown"
+        raw = (resp.choices[0].message.content or "").strip()
+        if not raw:
+            return "Unknown"
+
+        # Prefer exact reuse from existing categories.
+        if existing_map:
+            cleaned_raw = raw.strip().strip("\"'").strip().lstrip("-* ").strip()
+            normalized_raw = _normalize_cuisine_label(cleaned_raw)
+            if normalized_raw.casefold() in existing_map:
+                return existing_map[normalized_raw.casefold()]
+            canonical_raw = _canonical_cuisine_key(normalized_raw)
+            if canonical_raw in canonical_existing_map:
+                return canonical_existing_map[canonical_raw]
+            if cleaned_raw.lower().startswith("new:"):
+                candidate = cleaned_raw.split(":", 1)[1]
+            else:
+                candidate = cleaned_raw
+            normalized = _normalize_cuisine_label(candidate)
+            if normalized.casefold() in existing_map:
+                return existing_map[normalized.casefold()]
+            canonical_candidate = _canonical_cuisine_key(normalized)
+            if canonical_candidate in canonical_existing_map:
+                return canonical_existing_map[canonical_candidate]
+            return normalized
+
+        return _normalize_cuisine_label(raw)
     except Exception:
         return "Unknown"
 
@@ -290,6 +430,7 @@ async def submit_restaurant(
     if km > MAX_DISTANCE_KM:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"The selected restaurant is too far from the office (more than {MAX_DISTANCE_KM} km).")
 
+    existing_cuisines = _get_existing_cuisines(db, office_name)
     rest = RestaurantCreate(
         google_id=google_id,
         name=place["displayName"]["text"],
@@ -297,7 +438,7 @@ async def submit_restaurant(
         lat=lat,
         lng=lng,
         distance_from_office=km,
-        cuisine=await _classify_cuisine(place["displayName"]["text"]),
+        cuisine=await _classify_cuisine(place["displayName"]["text"], existing_cuisines),
         raw_input="",
         google_data=json.dumps(place),
         office_name=office_name,
